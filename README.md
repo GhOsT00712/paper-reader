@@ -18,8 +18,10 @@ Open the URL Wrangler prints, typically http://localhost:8788. Rebuild after cha
 
 ## Deploy on Cloudflare Pages
 
-1. Create a D1 database with `npx wrangler d1 create paper-reading-list`.
-2. Replace the placeholder `database_id` in `wrangler.jsonc` with the ID printed by Wrangler. Leave `preview_database_id` as `DB` for local development.
+The production project builds `main` for [paper-reader-2yi.pages.dev](https://paper-reader-2yi.pages.dev). Its D1 database is configured in `wrangler.jsonc`.
+
+1. For a separate deployment, create a D1 database with `npx wrangler d1 create paper-reading-list` in the target account.
+2. Set `database_name` and `database_id` in `wrangler.jsonc` to the target database. Leave `preview_database_id` as `DB` for local development.
 3. Run `npx wrangler d1 migrations apply paper-reading-list --remote`.
 4. In Cloudflare Pages, connect this GitHub repository. Select `main` as the production branch, `npm run build` as the build command, and `dist` as the output directory. Select Node.js 22.12 or newer for the build. Disable branch previews to keep the deployment to one shared list.
 5. Open the assigned `pages.dev` URL. Save a paper, open the source link, and mark it as read. Refresh from a second device and confirm the status persists.
