@@ -9,19 +9,19 @@
   <body>
     <div class="shell">
       <div class="topbar">
-        <span class="brand"><span class="brand-icon" aria-hidden="true">▤</span> Paper Reader</span>
+        <span class="brand"><span class="brand-icon" aria-hidden="true">P<span class="brand-dot">.</span></span> Paper Reader</span>
         <span class="shared"><span aria-hidden="true"></span> Shared library</span>
       </div>
       <main>
         <header class="hero">
-          <p class="eyebrow">RESEARCH LIBRARY</p>
-          <h1>Reading list</h1>
-          <p>Save research papers, open the original, and track what you’ve read.</p>
+          <p class="eyebrow">YOUR RESEARCH, ORGANIZED</p>
+          <h1>Make room for<br><span>your next idea.</span></h1>
+          <p>A thoughtful space for the papers you want to read.</p>
         </header>
         <form id="add-paper">
-          <label for="paper-url">Add a paper</label>
+          <div class="form-heading"><label for="paper-url">Add to your library</label><span>01 / DISCOVER</span></div>
           <div class="input-row">
-            <input id="paper-url" name="url" type="url" maxlength="2048" required placeholder="Paste an arXiv, DOI, or publisher link" aria-describedby="add-status">
+            <input id="paper-url" name="url" type="url" maxlength="2048" required placeholder="Paste a paper link…" aria-describedby="add-status">
             <button class="primary" type="submit">Find title</button>
           </div>
           <p id="add-status" class="hint" role="status">Paste a link to look up the paper title.</p>
@@ -29,7 +29,7 @@
         </form>
         <section aria-labelledby="library-title">
           <div class="library-heading">
-            <h2 id="library-title">Your papers</h2>
+            <h2 id="library-title">Your library <span class="library-caption">Keep your curiosity moving.</span></h2>
             <div class="filters" role="group" aria-label="Filter by reading status">
               <button id="unread" type="button" aria-pressed="true">Unread</button>
               <button id="read" type="button" aria-pressed="false">Read</button>
@@ -38,7 +38,7 @@
           <p id="status" class="hint" role="status"></p>
           <button id="retry" type="button" hidden>Retry loading</button>
           <div id="empty" hidden>
-            <span class="empty-icon" aria-hidden="true">▤</span>
+            <svg class="empty-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="12" y="8" width="26" height="32" rx="4" stroke="currentColor" stroke-width="1.5"/><path d="M18 18h14M18 24h14M18 30h8M8 14v24a6 6 0 006 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
             <p id="empty-title"></p>
             <p id="empty-description" class="hint"></p>
           </div>

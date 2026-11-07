@@ -54,6 +54,16 @@ function render() {
 function paperRow(paper: Paper) {
   const row = document.createElement('li');
   const details = document.createElement('div');
+  details.className = 'paper-details';
+  const badge = document.createElement('span');
+  badge.className = 'paper-badge';
+  badge.textContent = paper.read_at ? 'READ' : 'TO READ';
+  const date = document.createElement('span');
+  date.className = 'paper-date';
+  date.textContent = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(paper.created_at));
+  const meta = document.createElement('div');
+  meta.className = 'paper-meta';
+  meta.append(badge, date);
   const link = document.createElement('a');
   link.href = paper.url;
   link.target = '_blank';
@@ -67,7 +77,7 @@ function paperRow(paper: Paper) {
 
   const source = document.createElement('small');
   source.textContent = new URL(paper.url).hostname;
-  details.append(link, source);
+  details.append(meta, link, source);
 
   const action = document.createElement('button');
   action.type = 'button';
