@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Paper Reading List</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">RESEARCH LIBRARY</p>
+        <h1>Paper Reading List</h1>
+        <p>Save research papers and pick up your reading from any device.</p>
+      </header>
+      <form id="add-paper">
+        <h2>Add a paper</h2>
+        <label>Paper title <input name="title" maxlength="300" required placeholder="e.g. The Google File System"></label>
+        <label>Original link <input name="url" type="url" maxlength="2048" required placeholder="https://…"></label>
+        <button class="primary" type="submit">Save paper</button>
+      </form>
+      <section aria-label="Saved papers">
+        <div class="filters" role="group" aria-label="Filter by reading status">
+          <button id="unread" type="button" aria-pressed="true">Unread</button>
+          <button id="read" type="button" aria-pressed="false">Read</button>
+        </div>
+        <p id="status" role="status"></p>
+        <button id="retry" type="button" hidden>Retry loading</button>
+        <p id="empty" hidden></p>
+        <ul id="papers"></ul>
+      </section>
+      <footer>This is a shared list. Anyone with the link can view it and update it.</footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

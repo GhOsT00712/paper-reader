@@ -1,0 +1,11 @@
+{
+  "name": "paper-reading-list",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-11-07",
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "paper-reading-list",
+    "database_id": "00000000-0000-0000-0000-000000000000",
+    "preview_database_id": "DB"
+  }]
+}
