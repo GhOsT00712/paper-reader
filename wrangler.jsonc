@@ -1,11 +1,11 @@
 {
-  "name": "paper-reading-list",
+  "name": "paper-reader",
   "pages_build_output_dir": "./dist",
   "compatibility_date": "2026-11-07",
   "d1_databases": [{
     "binding": "DB",
     "database_name": "paper-reading-list",
-    "database_id": "00000000-0000-0000-0000-000000000000",
+    "database_id": "795c8a75-84bd-4b13-bf8f-709de8007fed",
     "preview_database_id": "DB"
   }]
 }
