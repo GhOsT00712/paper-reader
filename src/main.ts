@@ -3,6 +3,12 @@ import type { Paper } from './paper';
 
 const form = document.querySelector<HTMLFormElement>('#add-paper')!;
 const save = form.querySelector('button')!;
+const urlInput = document.querySelector<HTMLInputElement>('#paper-url')!;
+const titleInput = document.querySelector<HTMLInputElement>('#paper-title')!;
+const titleField = document.querySelector<HTMLElement>('#title-field')!;
+const addStatus = document.querySelector<HTMLElement>('#add-status')!;
+const addHint = addStatus.textContent!;
+let reviewedUrl: string | null = null;
 const unread = document.querySelector<HTMLButtonElement>('#unread')!;
 const read = document.querySelector<HTMLButtonElement>('#read')!;
 const status = document.querySelector<HTMLElement>('#status')!;
@@ -38,7 +44,10 @@ function render() {
 
   const visible = papers.filter(paper => Boolean(paper.read_at) === showingRead);
   empty.hidden = !loaded || visible.length > 0;
-  empty.textContent = showingRead ? 'Finished papers will appear here.' : 'No unread papers. Add a link to start your list.';
+  empty.querySelector('#empty-title')!.textContent = showingRead ? 'No finished papers yet' : 'Nothing in your queue';
+  empty.querySelector('#empty-description')!.textContent = showingRead
+    ? 'Papers move here when you mark them as read.'
+    : 'Add a paper link above to start your reading list.';
   list.replaceChildren(...visible.map(paperRow));
 }
 
@@ -50,6 +59,10 @@ function paperRow(paper: Paper) {
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   link.textContent = paper.title;
+  const arrow = document.createElement('span');
+  arrow.setAttribute('aria-hidden', 'true');
+  arrow.textContent = ' ↗';
+  link.append(arrow);
   link.setAttribute('aria-label', `${paper.title} (opens in a new tab)`);
 
   const source = document.createElement('small');
@@ -102,24 +115,61 @@ unread.addEventListener('click', () => { showingRead = false; render(); });
 read.addEventListener('click', () => { showingRead = true; render(); });
 retry.addEventListener('click', load);
 
+function resetTitle() {
+  reviewedUrl = null;
+  titleField.hidden = true;
+  titleInput.disabled = true;
+  titleInput.required = false;
+  titleInput.value = '';
+  save.textContent = 'Find title';
+  addStatus.textContent = addHint;
+}
+
+urlInput.addEventListener('input', resetTitle);
+
 form.addEventListener('submit', async event => {
   event.preventDefault();
   if (save.disabled) return;
 
-  const data = new FormData(form);
+  const url = urlInput.value.trim();
+  if (URL.parse(url)?.protocol !== 'https:') {
+    addStatus.textContent = 'Enter an HTTPS paper link.';
+    urlInput.focus();
+    return;
+  }
+
   save.disabled = true;
-  status.textContent = '';
+  urlInput.readOnly = true;
   try {
-    const paper = await request<Paper>('', 'POST', { title: data.get('title'), url: data.get('url') });
+    if (reviewedUrl !== url) {
+      addStatus.textContent = 'Looking up the paper title…';
+      const result = await request<{ title: string | null }>('/title', 'POST', { url }).catch(() => null);
+      reviewedUrl = url;
+      titleInput.value = result?.title ?? '';
+      titleField.hidden = false;
+      titleInput.disabled = false;
+      titleInput.required = true;
+      save.textContent = 'Save paper';
+      addStatus.textContent = result?.title
+        ? 'Title found. Edit it if needed, then save.'
+        : 'Couldn’t find a title. Enter it below to save the link.';
+      titleInput.focus();
+      return;
+    }
+
+    const paper = await request<Paper>('', 'POST', { title: titleInput.value, url });
     papers = [paper, ...papers];
     showingRead = false;
     form.reset();
-    status.textContent = 'Paper saved.';
+    resetTitle();
+    addStatus.textContent = 'Paper saved to Unread.';
     render();
+    urlInput.focus();
   } catch (error) {
-    status.textContent = (error as Error).message;
+    addStatus.textContent = (error as Error).message;
   } finally {
     save.disabled = false;
+    urlInput.readOnly = false;
   }
 });
 

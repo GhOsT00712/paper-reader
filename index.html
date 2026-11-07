@@ -3,33 +3,50 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Paper Reading List</title>
+    <meta name="theme-color" content="#101118">
+    <title>Paper Reader</title>
   </head>
   <body>
-    <main>
-      <header>
-        <p class="eyebrow">RESEARCH LIBRARY</p>
-        <h1>Paper Reading List</h1>
-        <p>Save research papers and pick up your reading from any device.</p>
-      </header>
-      <form id="add-paper">
-        <h2>Add a paper</h2>
-        <label>Paper title <input name="title" maxlength="300" required placeholder="e.g. The Google File System"></label>
-        <label>Original link <input name="url" type="url" maxlength="2048" required placeholder="https://…"></label>
-        <button class="primary" type="submit">Save paper</button>
-      </form>
-      <section aria-label="Saved papers">
-        <div class="filters" role="group" aria-label="Filter by reading status">
-          <button id="unread" type="button" aria-pressed="true">Unread</button>
-          <button id="read" type="button" aria-pressed="false">Read</button>
-        </div>
-        <p id="status" role="status"></p>
-        <button id="retry" type="button" hidden>Retry loading</button>
-        <p id="empty" hidden></p>
-        <ul id="papers"></ul>
-      </section>
-      <footer>This is a shared list. Anyone with the link can view it and update it.</footer>
-    </main>
+    <div class="shell">
+      <div class="topbar">
+        <span class="brand"><span class="brand-icon" aria-hidden="true">▤</span> Paper Reader</span>
+        <span class="shared"><span aria-hidden="true"></span> Shared library</span>
+      </div>
+      <main>
+        <header class="hero">
+          <p class="eyebrow">RESEARCH LIBRARY</p>
+          <h1>Reading list</h1>
+          <p>Save research papers, open the original, and track what you’ve read.</p>
+        </header>
+        <form id="add-paper">
+          <label for="paper-url">Add a paper</label>
+          <div class="input-row">
+            <input id="paper-url" name="url" type="url" maxlength="2048" required placeholder="Paste an arXiv, DOI, or publisher link" aria-describedby="add-status">
+            <button class="primary" type="submit">Find title</button>
+          </div>
+          <p id="add-status" class="hint" role="status">Paste a link to look up the paper title.</p>
+          <label id="title-field" hidden>Paper title <input id="paper-title" name="title" maxlength="300" disabled placeholder="Enter the paper title"></label>
+        </form>
+        <section aria-labelledby="library-title">
+          <div class="library-heading">
+            <h2 id="library-title">Your papers</h2>
+            <div class="filters" role="group" aria-label="Filter by reading status">
+              <button id="unread" type="button" aria-pressed="true">Unread</button>
+              <button id="read" type="button" aria-pressed="false">Read</button>
+            </div>
+          </div>
+          <p id="status" class="hint" role="status"></p>
+          <button id="retry" type="button" hidden>Retry loading</button>
+          <div id="empty" hidden>
+            <span class="empty-icon" aria-hidden="true">▤</span>
+            <p id="empty-title"></p>
+            <p id="empty-description" class="hint"></p>
+          </div>
+          <ul id="papers"></ul>
+        </section>
+        <footer>Anyone with the link can view and update this list.</footer>
+      </main>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
