@@ -10,26 +10,12 @@
     <div class="shell">
       <div class="topbar">
         <span class="brand"><span class="brand-icon" aria-hidden="true">P<span class="brand-dot">.</span></span> Paper Reader</span>
-        <span class="shared"><span aria-hidden="true"></span> Shared library</span>
+
       </div>
       <main>
-        <header class="hero">
-          <p class="eyebrow">YOUR RESEARCH, ORGANIZED</p>
-          <h1>Make room for<br><span>your next idea.</span></h1>
-          <p>A thoughtful space for the papers you want to read.</p>
-        </header>
-        <form id="add-paper">
-          <div class="form-heading"><label for="paper-url">Add to your library</label><span>01 / DISCOVER</span></div>
-          <div class="input-row">
-            <input id="paper-url" name="url" type="url" maxlength="2048" required placeholder="Paste a paper link…" aria-describedby="add-status">
-            <button class="primary" type="submit">Find title</button>
-          </div>
-          <p id="add-status" class="hint" role="status">Paste a link to look up the paper title.</p>
-          <label id="title-field" hidden>Paper title <input id="paper-title" name="title" maxlength="300" disabled placeholder="Enter the paper title"></label>
-        </form>
-        <section aria-labelledby="library-title">
+        <section aria-label="Paper library">
           <div class="library-heading">
-            <h2 id="library-title">Your library <span class="library-caption">Keep your curiosity moving.</span></h2>
+            <h1>Library</h1>
             <div class="filters" role="group" aria-label="Filter by reading status">
               <button id="unread" type="button" aria-pressed="true">Unread</button>
               <button id="read" type="button" aria-pressed="false">Read</button>
@@ -37,14 +23,21 @@
           </div>
           <p id="status" class="hint" role="status"></p>
           <button id="retry" type="button" hidden>Retry loading</button>
-          <div id="empty" hidden>
-            <svg class="empty-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true"><rect x="12" y="8" width="26" height="32" rx="4" stroke="currentColor" stroke-width="1.5"/><path d="M18 18h14M18 24h14M18 30h8M8 14v24a6 6 0 006 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-            <p id="empty-title"></p>
-            <p id="empty-description" class="hint"></p>
-          </div>
           <ul id="papers"></ul>
         </section>
-        <footer>Anyone with the link can view and update this list.</footer>
+        <dialog id="add-dialog" aria-labelledby="add-heading">
+          <div class="dialog-heading">
+            <h2 id="add-heading">Add paper</h2>
+            <button id="close-dialog" type="button" aria-label="Close">×</button>
+          </div>
+          <form id="add-paper">
+            <label for="paper-url">Paper link</label>
+            <input id="paper-url" name="url" type="url" maxlength="2048" required placeholder="https://…" aria-describedby="add-status" autofocus>
+            <label id="title-field" hidden>Paper title <input id="paper-title" name="title" maxlength="300" disabled></label>
+            <p id="add-status" class="hint" role="status"></p>
+            <button class="primary" type="submit">Find title</button>
+          </form>
+        </dialog>
       </main>
     </div>
     <script type="module" src="/src/main.ts"></script>

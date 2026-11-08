@@ -13,7 +13,13 @@ const unread = document.querySelector<HTMLButtonElement>('#unread')!;
 const read = document.querySelector<HTMLButtonElement>('#read')!;
 const status = document.querySelector<HTMLElement>('#status')!;
 const retry = document.querySelector<HTMLButtonElement>('#retry')!;
-const empty = document.querySelector<HTMLElement>('#empty')!;
+const dialog = document.querySelector<HTMLDialogElement>('#add-dialog')!;
+const closeDialog = document.querySelector<HTMLButtonElement>('#close-dialog')!;
+closeDialog.addEventListener('click', () => dialog.close());
+dialog.addEventListener('cancel', event => {
+  if (urlInput.readOnly) event.preventDefault();
+});
+dialog.addEventListener('close', () => document.querySelector<HTMLButtonElement>('.add-page')?.focus());
 const list = document.querySelector<HTMLUListElement>('#papers')!;
 
 let papers: Paper[] = [];
@@ -43,42 +49,57 @@ function render() {
   read.textContent = `Read (${papers.length - unreadCount})`;
 
   const visible = papers.filter(paper => Boolean(paper.read_at) === showingRead);
-  empty.hidden = !loaded || visible.length > 0;
-  empty.querySelector('#empty-title')!.textContent = showingRead ? 'No finished papers yet' : 'Nothing in your queue';
-  empty.querySelector('#empty-description')!.textContent = showingRead
-    ? 'Papers move here when you mark them as read.'
-    : 'Add a paper link above to start your reading list.';
-  list.replaceChildren(...visible.map(paperRow));
+
+  list.replaceChildren(addTile(), ...visible.map(paperRow));
+}
+
+function addTile() {
+  const tile = document.createElement('li');
+  tile.className = 'add-tile';
+  const button = document.createElement('button');
+  button.className = 'add-page';
+  button.type = 'button';
+  button.disabled = !loaded;
+  const plus = document.createElement('span');
+  plus.className = 'plus';
+  plus.textContent = '+';
+  plus.setAttribute('aria-hidden', 'true');
+  const label = document.createElement('span');
+  label.textContent = 'Add paper';
+  button.append(plus, label);
+  button.addEventListener('click', () => {
+    dialog.showModal();
+    urlInput.focus();
+  });
+  tile.append(button);
+  return tile;
 }
 
 function paperRow(paper: Paper) {
   const row = document.createElement('li');
-  const details = document.createElement('div');
-  details.className = 'paper-details';
-  const badge = document.createElement('span');
-  badge.className = 'paper-badge';
-  badge.textContent = paper.read_at ? 'READ' : 'TO READ';
-  const date = document.createElement('span');
-  date.className = 'paper-date';
-  date.textContent = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(paper.created_at));
-  const meta = document.createElement('div');
-  meta.className = 'paper-meta';
-  meta.append(badge, date);
+  row.className = 'paper-card';
   const link = document.createElement('a');
+  link.className = 'paper-page';
   link.href = paper.url;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
-  link.textContent = paper.title;
-  const arrow = document.createElement('span');
-  arrow.setAttribute('aria-hidden', 'true');
-  arrow.textContent = ' ↗';
-  link.append(arrow);
   link.setAttribute('aria-label', `${paper.title} (opens in a new tab)`);
 
-  const source = document.createElement('small');
+  const source = document.createElement('span');
+  source.className = 'paper-source';
   source.textContent = new URL(paper.url).hostname;
-  details.append(meta, link, source);
-
+  const title = document.createElement('h2');
+  title.className = 'paper-title';
+  title.textContent = paper.title;
+  const rules = document.createElement('span');
+  rules.className = 'page-rules';
+  rules.setAttribute('aria-hidden', 'true');
+  const open = document.createElement('span');
+  open.className = 'open-paper';
+  open.textContent = 'Open paper ↗';
+  link.append(source, title, rules, open);
+  const controls = document.createElement('div');
+  controls.className = 'paper-controls';
   const action = document.createElement('button');
   action.type = 'button';
   action.textContent = paper.read_at ? 'Move to unread' : 'Mark as read';
@@ -100,7 +121,8 @@ function paperRow(paper: Paper) {
       if (restoreFocus) (showingRead ? read : unread).focus();
     }
   });
-  row.append(details, action);
+  controls.append(action);
+  row.append(link, controls);
   return row;
 }
 
@@ -150,6 +172,7 @@ form.addEventListener('submit', async event => {
 
   save.disabled = true;
   urlInput.readOnly = true;
+  closeDialog.disabled = true;
   try {
     if (reviewedUrl !== url) {
       addStatus.textContent = 'Looking up the paper title…';
@@ -172,14 +195,15 @@ form.addEventListener('submit', async event => {
     showingRead = false;
     form.reset();
     resetTitle();
-    addStatus.textContent = 'Paper saved to Unread.';
+    status.textContent = 'Paper saved.';
     render();
-    urlInput.focus();
+    dialog.close();
   } catch (error) {
     addStatus.textContent = (error as Error).message;
   } finally {
     save.disabled = false;
     urlInput.readOnly = false;
+    closeDialog.disabled = false;
   }
 });
 
