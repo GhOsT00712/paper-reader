@@ -18,12 +18,14 @@ function attributes(tag: string) {
   return values;
 }
 
-function extractTitle(html: string) {
+function extractMetadata(html: string) {
+  const authors = new Set<string>();
   const metadata = new Map<string, string>();
   for (const [tag] of html.matchAll(/<meta\b(?:[^"'<>]|"[^"]*"|'[^']*')*>/gi)) {
     const attrs = attributes(tag);
     const name = (attrs.get('name') ?? attrs.get('property'))?.toLowerCase();
     const content = attrs.get('content');
+    if (name === 'citation_author' && content) authors.add(decodeHTML(content).trim());
     if (name && content && !metadata.has(name)) metadata.set(name, content);
   }
 
@@ -32,9 +34,9 @@ function extractTitle(html: string) {
   for (const candidate of [metadata.get('citation_title'), metadata.get('dc.title'), heading, metadata.get('og:title'), pageTitle]) {
     if (!candidate) continue;
     const title = decodeHTML(candidate).replace(/\s+/g, ' ').trim().replace(/^Title:\s*/i, '');
-    if (title && title.length <= 300) return title;
+    if (title && title.length <= 300) return { title, authors: [...authors].join(', ').slice(0, 500) };
   }
-  return null;
+  return { title: null, authors: '' };
 }
 
 async function readHtml(response: Response) {
@@ -76,7 +78,7 @@ export const onRequestPost: PagesFunction = async ({ request }) => {
         continue;
       }
       if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
-        return Response.json({ title: extractTitle(await readHtml(response)) });
+        return Response.json(extractMetadata(await readHtml(response)));
       }
       await response.body?.cancel();
       break;

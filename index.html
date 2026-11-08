@@ -3,43 +3,94 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#101118">
+    <meta name="theme-color" content="#0d1014">
     <title>Paper Reader</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <link rel="manifest" href="/manifest.webmanifest">
   </head>
   <body>
     <div class="shell">
-      <div class="topbar">
-        <span class="brand"><span class="brand-icon" aria-hidden="true">P<span class="brand-dot">.</span></span> Paper Reader</span>
-
-      </div>
-      <main>
-        <section aria-label="Paper library">
-          <div class="library-heading">
-            <h1>Library</h1>
-            <div class="filters" role="group" aria-label="Filter by reading status">
-              <button id="unread" type="button" aria-pressed="true">Unread</button>
-              <button id="read" type="button" aria-pressed="false">Read</button>
+      <header class="topbar">
+        <span class="brand"><span aria-hidden="true" class="brand-icon">P.</span> Paper Reader</span>
+        <div class="header-actions">
+          <label class="search"><span class="sr-only">Search papers</span><input id="search" type="search" placeholder="Search papers"></label>
+          <button id="add" class="primary" type="button" disabled>+ Add paper</button>
+          <button id="theme" class="icon-button" type="button" aria-label="Change theme" title="Change theme">◐</button>
+          <details id="export-menu" class="menu">
+            <summary class="icon-button" aria-label="Export papers" title="Export papers">↓</summary>
+            <div class="menu-items">
+              <button type="button" data-export="json">Export JSON</button>
+              <button type="button" data-export="csv">Export CSV</button>
+              <button type="button" data-export="bib">Export BibTeX</button>
             </div>
+          </details>
+        </div>
+      </header>
+      <main>
+        <div class="library-heading">
+          <h1>Library</h1>
+          <div class="tabs" role="tablist" aria-label="Reading status">
+            <button id="tab-all" role="tab" aria-controls="papers-panel" aria-selected="false" tabindex="-1" data-tab="all">All <span></span></button>
+            <button id="tab-unread" role="tab" aria-controls="papers-panel" aria-selected="true" data-tab="unread">Unread <span></span></button>
+            <button id="tab-read" role="tab" aria-controls="papers-panel" aria-selected="false" tabindex="-1" data-tab="read">Read <span></span></button>
           </div>
-          <p id="status" class="hint" role="status"></p>
-          <button id="retry" type="button" hidden>Retry loading</button>
-          <ul id="papers"></ul>
+          <div class="view-actions">
+            <label><span class="sr-only">Sort papers</span>
+              <select id="sort">
+                <option value="added">Date added</option>
+                <option value="read">Date read</option>
+                <option value="title">Title A–Z</option>
+              </select>
+            </label>
+            <button id="view" class="secondary" type="button">List view</button>
+          </div>
+        </div>
+        <section id="papers-panel" role="tabpanel" aria-labelledby="tab-unread" tabindex="0">
+          <h2 id="panel-heading" class="sr-only">Unread papers</h2>
+          <p id="result-count" class="muted" role="status" hidden></p>
+          <div id="load-error" class="empty-state" hidden><p>Couldn’t load your papers.</p><button id="retry" class="secondary" type="button">Retry</button></div>
+          <div id="empty" class="empty-state" hidden></div>
+          <ul id="papers" aria-busy="true"></ul>
+          <div id="hint" hidden>
+            <p>Papers you mark as read move to the Read tab.</p>
+            <button id="dismiss-hint" class="icon-button" type="button" aria-label="Dismiss hint">×</button>
+          </div>
         </section>
-        <dialog id="add-dialog" aria-labelledby="add-heading">
-          <div class="dialog-heading">
-            <h2 id="add-heading">Add paper</h2>
-            <button id="close-dialog" type="button" aria-label="Close">×</button>
-          </div>
-          <form id="add-paper">
-            <label for="paper-url">Paper link</label>
-            <input id="paper-url" name="url" type="url" maxlength="2048" required placeholder="https://…" aria-describedby="add-status" autofocus>
-            <label id="title-field" hidden>Paper title <input id="paper-title" name="title" maxlength="300" disabled></label>
-            <p id="add-status" class="hint" role="status"></p>
-            <button class="primary" type="submit">Find title</button>
-          </form>
-        </dialog>
       </main>
     </div>
+    <dialog id="paper-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-heading">
+        <h2 id="dialog-title">Add paper</h2>
+        <button id="close-dialog" class="icon-button" type="button" aria-label="Close">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <form id="paper-form">
+        <label id="link-field">Paper link, arXiv ID or DOI
+          <input name="url" type="text" inputmode="url" autocomplete="off" maxlength="2048" placeholder="https://…" required>
+        </label>
+        <div id="lookup" hidden><span class="spinner" aria-hidden="true"></span> Finding title <button id="cancel-lookup" type="button">Cancel</button></div>
+        <div id="duplicate" hidden></div>
+        <div id="paper-details" hidden>
+          <label>Title <input name="title" maxlength="300" required disabled></label>
+          <details id="optional-fields">
+            <summary>Authors, tags and note</summary>
+            <label>Authors <input name="authors" maxlength="500"></label>
+            <label>Tags <input name="tags" maxlength="240" placeholder="Comma-separated"></label>
+            <div id="tag-preview" class="tags" aria-hidden="true"></div>
+            <label>Note <textarea name="note" rows="2" maxlength="1000"></textarea></label>
+          </details>
+        </div>
+        <p id="form-status" class="muted" role="status"></p>
+        <button id="save" class="primary" type="submit">Save paper</button>
+      </form>
+    </dialog>
+    <dialog id="shortcuts" aria-labelledby="shortcut-title">
+      <div class="dialog-heading"><h2 id="shortcut-title">Keyboard shortcuts</h2><form method="dialog"><button class="secondary">Close</button></form></div>
+      <dl><dt>N</dt><dd>Add paper</dd><dt>/</dt><dd>Search</dd><dt>1 / 2 / 3</dt><dd>All / Unread / Read</dd><dt>?</dt><dd>Shortcuts</dd></dl>
+    </dialog>
+    <div id="toasts" role="status" aria-live="polite"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
