@@ -199,7 +199,10 @@ function paperCard(paper: Paper) {
   link.rel = 'noopener noreferrer';
   link.title = paper.title;
   link.setAttribute('aria-label', paper.title + (pdf ? ' (read PDF)' : ' (opens in a new tab)'));
-  link.append(element('span', sourceLabel(paper.url), 'paper-source'), element('h3', paper.title, 'paper-title'));
+  const source = element('div', '', 'paper-source-row');
+  if (pdf) source.append(element('span', 'PDF', 'pdf-badge'));
+  source.append(element('span', sourceLabel(paper.url), 'paper-source'));
+  link.append(source, element('h3', paper.title, 'paper-title'));
   if (paper.authors) link.append(element('span', paper.authors, 'authors muted'));
   if (paper.tags) {
     const chips = element('span', '', 'tags');
