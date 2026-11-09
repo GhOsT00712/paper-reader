@@ -1,3 +1,4 @@
+import { pdfSource } from './pdf-source';
 import './style.css';
 import type { Paper } from './paper';
 import { normalizePaperUrl, getArxivId, paperKey } from './paper-url';
@@ -192,11 +193,12 @@ function paperCard(paper: Paper) {
   const card = element('li', '', 'paper-card');
   card.dataset.id = String(paper.id);
   const link = element('a', '', 'paper-page');
-  link.href = paper.url;
-  link.target = '_blank';
+  const pdf = pdfSource(paper.url);
+  link.href = pdf ? '/reader.html?id=' + paper.id : paper.url;
+  if (!pdf) link.target = '_blank';
   link.rel = 'noopener noreferrer';
   link.title = paper.title;
-  link.setAttribute('aria-label', paper.title + ' (opens in a new tab)');
+  link.setAttribute('aria-label', paper.title + (pdf ? ' (read PDF)' : ' (opens in a new tab)'));
   link.append(element('span', sourceLabel(paper.url), 'paper-source'), element('h3', paper.title, 'paper-title'));
   if (paper.authors) link.append(element('span', paper.authors, 'authors muted'));
   if (paper.tags) {

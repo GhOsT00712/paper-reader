@@ -52,3 +52,10 @@ export const onRequestDelete: PagesFunction<Env> = async ({ env, params }) => {
   if (!paper) return Response.json({ error: 'Paper not found.' }, { status: 404 });
   return Response.json({ token: paper.deleted_at });
 };
+
+export const onRequestGet: PagesFunction<Env> = async ({ env, params }) => {
+  const paper = await env.DB.prepare('SELECT id, title, url FROM papers WHERE id = ? AND deleted_at IS NULL')
+    .bind(Number(params.id)).first();
+  if (!paper) return Response.json({ error: 'Paper not found.' }, { status: 404 });
+  return Response.json(paper, { headers: { 'Cache-Control': 'no-store' } });
+};

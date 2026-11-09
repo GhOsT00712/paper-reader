@@ -19,6 +19,7 @@
   },
   "private": true,
   "dependencies": {
-    "entities": "^9.0.0"
+    "entities": "^9.0.0",
+    "pdfjs-dist": "^6.5.438"
   }
 }
