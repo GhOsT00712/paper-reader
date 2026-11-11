@@ -253,11 +253,11 @@ async function mount(slot: PageSlot) {
       text.className = 'textLayer';
       source.append(text);
       slot.node.append(source);
-      const layer = new TextLayer({ textContentSource: pdfPage.streamTextContent(), viewport: view, container: text });
+      const layer = new TextLayer({ textContentSource: pdfPage.streamTextContent({ includeMarkedContent: true }), viewport: view, container: text });
       slot.textLayer = layer;
-      await layer.render();
+      const [structure] = await Promise.all([pdfPage.getStructTree().catch(() => null), layer.render()]);
       if (slot.mounting !== mounting) return;
-      const reflow = reflowText(text, layer.textDivs);
+      const reflow = reflowText(text, layer.textDivs, structure, slot.number === 1);
       if (reflow) {
         recordScroll();
         const anchor = readingPosition();

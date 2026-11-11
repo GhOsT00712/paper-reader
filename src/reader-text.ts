@@ -1,10 +1,17 @@
-import type { PageViewport } from 'pdfjs-dist';
+import type { PDFPageProxy, PageViewport } from 'pdfjs-dist';
 import type { Highlight } from './pdf-state';
+
+type Structure = Awaited<ReturnType<PDFPageProxy['getStructTree']>>;
+
+interface Heading {
+  level: number;
+}
 
 interface TextRun {
   source: HTMLElement;
   visible: HTMLSpanElement;
   box: DOMRect;
+  heading?: Heading;
 }
 
 interface Row {
@@ -68,38 +75,87 @@ function readingRows(runs: TextRun[], bounds: DOMRect) {
   return ordered;
 }
 
-export function reflowText(origin: HTMLElement, spans: HTMLElement[]): TextPage | null {
+function taggedHeadings(tree: Structure | null) {
+  const headings = new Map<string, Heading>();
+  function visit(node: Structure | Structure['children'][number], heading?: Heading) {
+    if ('role' in node) {
+      const level = /^H([1-6])?$/.exec(node.role);
+      const tagged = node.role === 'Title' ? { level: 2 } :
+        level ? { level: Math.min(6, Number(level[1] ?? 1) + 1) } : heading;
+      for (const child of node.children) visit(child, tagged);
+    } else if (heading && node.type === 'content') {
+      headings.set(node.id, heading);
+    }
+  }
+  if (tree) visit(tree);
+  return headings;
+}
+
+function headingFor(source: HTMLElement, headings: Map<string, Heading>) {
+  for (let node = source.parentElement; node?.classList.contains('markedContent'); node = node.parentElement) {
+    const heading = headings.get(node.id);
+    if (heading) return heading;
+  }
+}
+
+function inferredHeading(line: string, row: Row, previous: Row | undefined, body: number, firstPage: boolean) {
+  const label = line.trim().replace(/:$/, '');
+  if (label.length < 2 || label.length > 160 || /[.!?]$/.test(label) ||
+      /^(?:figure|fig\.|table)\s+\d/i.test(label)) return 0;
+  const section = /^(?:abstract|introduction|background|related work|method(?:s|ology)?|results|discussion|conclusions?|references|bibliography|acknowledg[e]?ments?|appendix(?: [a-z])?|limitations|future work)$/i;
+  if (section.test(label)) return 3;
+  const numbered = /^(\d{1,2}(?:\.\d{1,2})*)\.?\s+\p{L}/u.exec(label);
+  const startsBlock = !previous || row.top <= previous.top || row.top - previous.top > body * 1.4;
+  if (numbered && label.length <= 100 && (startsBlock || row.height >= body * 1.12)) {
+    return Math.min(6, 3 + numbered[1].split('.').length - 1);
+  }
+  if (row.height >= body * 1.22 && (startsBlock || row.height > (previous?.height ?? body) * 1.14)) {
+    return firstPage && row.height >= body * 1.45 ? 2 : 3;
+  }
+  return 0;
+}
+
+export function reflowText(origin: HTMLElement, spans: HTMLElement[], structure: Structure | null, firstPage: boolean): TextPage | null {
+  const headings = taggedHeadings(structure);
   const runs = spans.flatMap(source => {
     if (!source.textContent?.trim() || source.firstChild?.nodeType !== Node.TEXT_NODE) return [];
     const visible = document.createElement('span');
     visible.textContent = source.textContent;
-    return [{ source, visible, box: source.getBoundingClientRect() }];
+    return [{ source, visible, box: source.getBoundingClientRect(), heading: headingFor(source, headings) }];
   });
   if (!runs.length) return null;
 
   const content = document.createElement('div');
   content.className = 'reflow-text';
-  let paragraph: HTMLParagraphElement | undefined;
+  let block: HTMLElement | undefined;
   let previous: Row | undefined;
+  let previousHeading: Heading | undefined;
   const ordered: TextRun[] = [];
-  for (const row of readingRows(runs, origin.getBoundingClientRect())) {
-    if (!paragraph || !previous || row.top < previous.top ||
-        row.top - previous.top > Math.max(row.height, previous.height) * 1.65 ||
-        row.height > previous.height * 1.25 || previous.height > row.height * 1.25) {
-      paragraph = document.createElement('p');
-      paragraph.dir = 'auto';
-      content.append(paragraph);
-    } else {
-      paragraph.append(' ');
-    }
+  const rows = readingRows(runs, origin.getBoundingClientRect());
+  const heights = rows.map(row => row.height).sort((a, b) => a - b);
+  const bodyHeight = heights[Math.floor(heights.length / 2)];
+  for (const row of rows) {
     const line = row.runs.sort((a, b) => a.box.left - b.box.left);
+    const tagged = line[0].heading;
+    const level = tagged?.level ?? inferredHeading(line.map(run => run.visible.textContent).join(' '), row, previous, bodyHeight, firstPage);
+    const sameHeading = tagged && tagged === previousHeading;
+    if (!block || !sameHeading && (level || previousHeading || block.tagName !== 'P' || !previous ||
+        row.top < previous.top || row.top - previous.top > Math.max(row.height, previous.height) * 1.65 ||
+        row.height > previous.height * 1.25 || previous.height > row.height * 1.25)) {
+      block = document.createElement(level ? 'h' + level : 'p');
+      block.dir = 'auto';
+      content.append(block);
+    } else {
+      block.append(' ');
+    }
     line.forEach((run, index) => {
       const prior = line[index - 1];
-      if (prior && run.box.left - prior.box.right > row.height * .15) paragraph!.append(' ');
-      paragraph!.append(run.visible);
+      if (prior && run.box.left - prior.box.right > row.height * .15) block!.append(' ');
+      block!.append(run.visible);
       ordered.push(run);
     });
     previous = row;
+    previousHeading = tagged;
   }
   return { content, runs: ordered, origin };
 }
