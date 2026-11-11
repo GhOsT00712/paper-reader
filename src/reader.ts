@@ -41,6 +41,11 @@ interface PageSlot {
 const pages: PageSlot[] = [];
 const mounted = new Set<PageSlot>();
 const textToggle = byId<HTMLButtonElement>('text-view');
+const readerHeader = document.querySelector<HTMLElement>('.reader-header')!;
+const readerFooter = document.querySelector<HTMLElement>('.reader-footer')!;
+const more = byId<HTMLDetailsElement>('reader-more');
+const idleDelay = 2400;
+let controlsTimer: number | undefined;
 let textView = mobile.matches && localStorage.getItem('paper-text-view') === '1';
 let layoutTextView = false;
 let pendingTextJump: Highlight | undefined;
@@ -62,6 +67,22 @@ function applyTheme() {
 }
 applyTheme();
 media.addEventListener('change', applyTheme);
+
+function revealControls() {
+  document.body.removeAttribute('data-controls-hidden');
+  clearTimeout(controlsTimer);
+  if (!mobile.matches || !document.body.hasAttribute('data-controls-ready')) return;
+  controlsTimer = window.setTimeout(() => {
+    if (selection.length || !highlightsPanel.hidden || more.open || document.activeElement === pageInput ||
+        readerHeader.querySelector(':focus-visible') || readerFooter.querySelector(':focus-visible')) return;
+    document.body.setAttribute('data-controls-hidden', '');
+  }, idleDelay);
+}
+
+function measureControls() {
+  document.body.style.setProperty('--reader-header-height', readerHeader.offsetHeight + 'px');
+  document.body.style.setProperty('--reader-footer-height', readerFooter.offsetHeight + 'px');
+}
 
 async function readPdf(response: Response) {
   if (!response.ok || !response.body || !/^(application\/(pdf|octet-stream))\b/i.test(response.headers.get('content-type') ?? '')) {
@@ -142,7 +163,8 @@ function updateNavigation() {
 
 function restorePosition(position: Position, save = false) {
   const slot = pages[Math.min(pages.length, Math.max(1, position.page)) - 1];
-  scroller.scrollTop = slot.node.offsetTop + position.offset * slot.node.offsetHeight;
+  scroller.scrollTop = slot.number === 1 && position.offset === 0 ? 0 :
+    slot.node.offsetTop + position.offset * slot.node.offsetHeight;
   lastScroll = scroller.scrollTop;
   updateNavigation();
   schedulePages();
@@ -206,7 +228,8 @@ function setPageSize(slot: PageSlot) {
 
 function setEndPadding() {
   const last = pages.at(-1)!;
-  pageSlot.style.paddingBottom = Math.max(4, scroller.clientHeight - last.node.offsetHeight) + 'px';
+  const clearance = mobile.matches ? readerFooter.offsetHeight + 4 : 4;
+  pageSlot.style.paddingBottom = Math.max(clearance, scroller.clientHeight - last.node.offsetHeight) + 'px';
 }
 
 function unmount(slot: PageSlot) {
@@ -416,13 +439,17 @@ function resize() {
   clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
     recordScroll();
-    layout(readingPosition());
+    const position = readingPosition();
+    measureControls();
+    layout(position);
   }, 90);
 }
 
 function setSelection(items: Highlight[]) {
+  const hadSelection = selection.length > 0;
   selection = items;
   mark.disabled = !items.length;
+  if (hadSelection || items.length) revealControls();
 }
 
 function trackSelection() {
@@ -472,6 +499,7 @@ function setHighlightsOpen(open: boolean) {
   panelToggle.setAttribute('aria-expanded', String(open));
   if (!open) panelToggle.focus();
   else byId('close-highlights').focus();
+  revealControls();
   if (!mobile.matches) resize();
 }
 
@@ -515,9 +543,13 @@ async function start() {
   document.querySelector('.reader-options')!.append(original);
   byId('toolbar').hidden = false;
   notice.textContent = '';
+  document.body.setAttribute('data-controls-ready', '');
+  measureControls();
+  revealControls();
   layout(saved.position ?? { page: 1, offset: 0 });
   renderHighlights();
-  new ResizeObserver(resize).observe(scroller);
+  const observer = new ResizeObserver(resize);
+  for (const node of [scroller, readerHeader, readerFooter]) observer.observe(node);
 
   window.setInterval(() => { recordScroll(); void sync.flush(); }, 60000);
   window.addEventListener('pagehide', () => { recordScroll(); void sync.flush(true); });
@@ -529,6 +561,7 @@ async function start() {
 
 scroller.addEventListener('scroll', () => {
   if (!pages.length) return;
+  revealControls();
   schedulePages();
   clearTimeout(scrollTimer);
   scrollTimer = window.setTimeout(recordScroll, 200);
@@ -543,21 +576,27 @@ byId('zoom-in').addEventListener('click', () => { zoom = Math.min(3, zoom + .25)
 byId('zoom-out').addEventListener('click', () => { zoom = Math.max(.75, zoom - .25); resize(); });
 panelToggle.addEventListener('click', () => setHighlightsOpen(highlightsPanel.hidden === true));
 byId('close-highlights').addEventListener('click', () => setHighlightsOpen(false));
-const more = byId<HTMLDetailsElement>('reader-more');
 textToggle.addEventListener('click', () => {
   recordScroll();
   textView = !textView;
   localStorage.setItem('paper-text-view', textView ? '1' : '0');
   pendingTextJump = undefined;
   layout(readingPosition());
-  more.open = false;
-  more.querySelector('summary')?.focus();
+  revealControls();
 });
 mobile.addEventListener('change', () => {
   textToggle.hidden = !mobile.matches;
   textView = mobile.matches && localStorage.getItem('paper-text-view') === '1';
+  revealControls();
   resize();
 });
+scroller.addEventListener('click', revealControls);
+for (const bar of [readerHeader, readerFooter]) {
+  bar.addEventListener('focusin', revealControls);
+  bar.addEventListener('focusout', revealControls);
+  bar.addEventListener('pointerdown', revealControls);
+}
+more.addEventListener('toggle', revealControls);
 document.addEventListener('click', event => {
   if (more.open && !more.contains(event.target as Node)) more.open = false;
 });

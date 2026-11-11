@@ -1,4 +1,4 @@
-.reader { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+.reader { position: relative; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 .reader-header, .reader-footer { flex: none; background: var(--surface); }
 .reader-header { padding: max(.4rem, env(safe-area-inset-top)) 1rem .4rem; border-bottom: 1px solid var(--line); }
 .reader-footer { position: relative; z-index: 4; padding: .25rem 1rem env(safe-area-inset-bottom); border-top: 1px solid var(--line); }
@@ -64,4 +64,24 @@
 .pdf-text-source { position: absolute; top: 0; left: 0; width: 100%; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 ::highlight(paper-reader-marks) { background: #ffdc69; color: #251c08; }
 .reflow-highlight { background: #ffdc69; color: #251c08; }
-.reader-options #text-view { width: 100%; white-space: nowrap; }
+#text-view { font-family: Georgia, serif; font-size: 1.1rem; font-weight: 700; }
+@media (max-width: 700px) {
+  .reader-tools #highlight:disabled { display: none; }
+  .reader-tools:has(#highlight:not(:disabled)) .reader-group { display: none; }
+  .reader[data-controls-ready] :is(.reader-header, .reader-footer) {
+    position: absolute;
+    inset-inline: 0;
+    z-index: 4;
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+  .reader[data-controls-ready] .reader-header { top: 0; }
+  .reader[data-controls-ready] .reader-footer { bottom: 0; }
+  .reader[data-controls-ready] #page { padding-top: calc(var(--reader-header-height, 0px) + 4px); }
+  .reader[data-controls-ready] #highlights { bottom: var(--reader-footer-height, 0px); }
+  .reader[data-controls-hidden] :is(.reader-header, .reader-footer) { opacity: 0; pointer-events: none; }
+  .reader[data-controls-hidden] .reader-header { transform: translateY(-100%); }
+  .reader[data-controls-hidden] .reader-footer { transform: translateY(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader[data-controls-ready] :is(.reader-header, .reader-footer) { transition: none; }
+}
