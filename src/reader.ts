@@ -1,11 +1,12 @@
 import './style.css';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import './reader.css';
-import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy, type PageViewport, type RenderTask } from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy, type PageViewport } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { canProxyPdf, PDF_LIMIT, pdfSource, pdfVersion } from './pdf-source';
 import { ReaderSync } from './reader-sync';
 import type { Highlight, Position } from './pdf-state';
+import { renderPdfRaster } from './reader-raster';
 import { reflowText, textSelection, highlightedText, type TextPage } from './reader-text';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
@@ -31,7 +32,7 @@ interface PageSlot {
   node: HTMLElement;
   ratio: number;
   viewport?: PageViewport;
-  task?: RenderTask;
+  raster?: ReturnType<typeof renderPdfRaster>;
   textLayer?: TextLayer;
   ready?: boolean;
   reflow?: TextPage;
@@ -234,9 +235,9 @@ function setEndPadding() {
 
 function unmount(slot: PageSlot) {
   mounted.delete(slot);
-  slot.task?.cancel();
+  slot.raster?.destroy();
   slot.textLayer?.cancel();
-  slot.task = undefined;
+  slot.raster = undefined;
   slot.textLayer = undefined;
   slot.viewport = undefined;
   slot.ready = false;
@@ -300,28 +301,19 @@ async function mount(slot: PageSlot) {
       slot.textHeight = pageWidth * slot.ratio;
       setPageSize(slot);
     }
-    const canvas = document.createElement('canvas');
-    canvas.setAttribute('aria-hidden', 'true');
-    const pixels = Math.min(devicePixelRatio, 2, Math.sqrt(4_000_000 / (view.width * view.height)));
-    canvas.width = Math.ceil(view.width * pixels);
-    canvas.height = Math.ceil(view.height * pixels);
     const overlay = document.createElement('div');
     overlay.className = 'pdf-marks';
     overlay.setAttribute('aria-hidden', 'true');
     const text = document.createElement('div');
     text.className = 'textLayer';
-    slot.node.append(canvas, overlay, text);
-    const task = pdfPage.render({ canvas, viewport: view, transform: [pixels, 0, 0, pixels, 0, 0] });
-    slot.task = task;
+    slot.node.append(overlay, text);
+    const raster = renderPdfRaster(pdfPage, view, slot.node, scroller);
+    slot.raster = raster;
     const textLayer = new TextLayer({ textContentSource: pdfPage.streamTextContent(), viewport: view, container: text });
     slot.textLayer = textLayer;
-    try {
-      await Promise.all([task.promise, textLayer.render()]);
-    } catch (error) {
-      if (slot.task !== task) return;
-      throw error;
-    }
-    if (slot.task !== task) return;
+    await Promise.all([raster.ready, textLayer.render()]);
+    if (slot.mounting !== mounting) return;
+    raster.update();
     slot.ready = true;
     renderMarks(slot);
   } catch {
@@ -355,6 +347,7 @@ function updatePages() {
   for (let n = first; n <= last; n++) {
     const slot = pages[n - 1];
     if (!mounted.has(slot)) void mount(slot);
+    else slot.raster?.update();
   }
 }
 
