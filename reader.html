@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>PDF Reader</title>
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
   </head>
@@ -11,34 +11,47 @@
       <div class="reader-heading">
         <a id="back" class="secondary reader-link" href="/">← Library</a>
         <h1 id="document-title">PDF Reader</h1>
-        <a id="original" class="reader-link" target="_blank" rel="noopener noreferrer" hidden>Open original ↗</a>
-      </div>
-      <div id="toolbar" class="reader-tools" hidden>
-        <div class="reader-group">
-          <button id="previous" class="secondary" aria-label="Previous page">‹</button>
-          <label class="page-label"><span class="sr-only">Page number</span><input id="page-number" type="number" min="1" value="1"></label>
-          <span id="page-count"></span>
-          <button id="next" class="secondary" aria-label="Next page">›</button>
+        <div id="navigation" class="reader-group" hidden>
+          <button id="previous" class="secondary page-step" aria-label="Previous page">‹</button>
+          <form id="page-jump" class="reader-group">
+            <label class="page-label"><span class="sr-only">Go to page</span><input id="page-number" type="number" min="1" value="1" inputmode="numeric" enterkeyhint="go"></label>
+            <span id="page-count"></span>
+          </form>
+          <button id="next" class="secondary page-step" aria-label="Next page">›</button>
         </div>
-        <div class="reader-group">
-          <button id="zoom-out" class="secondary" aria-label="Zoom out">−</button>
-          <button id="zoom-in" class="secondary" aria-label="Zoom in">+</button>
-          <button id="highlight" class="primary" disabled>Highlight</button>
-          <button id="toggle-highlights" class="secondary" aria-expanded="false" aria-controls="highlights">Highlights</button>
-        </div>
-        <span id="sync" class="muted" role="status"></span>
       </div>
       <p id="notice" class="muted" role="status">Loading PDF…</p>
     </header>
     <main class="reader-layout">
-      <div id="viewport" tabindex="0" aria-label="PDF page">
+      <div id="viewport" tabindex="0" aria-label="PDF document">
         <div id="page"></div>
       </div>
       <aside id="highlights" aria-label="Saved highlights" hidden>
-        <h2>Highlights</h2>
+        <div class="highlights-heading">
+          <h2>Highlights</h2>
+          <button id="close-highlights" class="secondary" type="button">Close</button>
+        </div>
         <ul id="highlight-list"></ul>
       </aside>
     </main>
+    <footer class="reader-footer">
+      <div id="toolbar" class="reader-tools" hidden>
+        <div class="reader-group">
+          <button id="zoom-out" class="secondary" aria-label="Zoom out">−</button>
+          <button id="zoom-in" class="secondary" aria-label="Zoom in">+</button>
+        </div>
+        <button id="highlight" class="primary" disabled>Highlight</button>
+        <button id="toggle-highlights" class="secondary" aria-expanded="false" aria-controls="highlights">Highlights</button>
+        <details id="reader-more" class="reader-more">
+          <summary class="secondary" aria-label="More options">⋯</summary>
+          <div class="reader-options"></div>
+        </details>
+      </div>
+      <div class="reader-details">
+        <span id="sync" class="muted" role="status"></span>
+        <a id="original" class="reader-link" target="_blank" rel="noopener noreferrer" hidden>Open original ↗</a>
+      </div>
+    </footer>
     <script type="module" src="/src/reader.ts"></script>
   </body>
 </html>

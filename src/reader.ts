@@ -1,7 +1,7 @@
 import './style.css';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import './reader.css';
-import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy, type PageViewport } from 'pdfjs-dist';
+import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentProxy, type PageViewport, type RenderTask } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { canProxyPdf, PDF_LIMIT, pdfSource, pdfVersion } from './pdf-source';
 import { ReaderSync } from './reader-sync';
@@ -23,16 +23,27 @@ const highlightsPanel = byId('highlights');
 const highlightsList = byId('highlight-list');
 const panelToggle = byId<HTMLButtonElement>('toggle-highlights');
 const media = matchMedia('(prefers-color-scheme: dark)');
+const mobile = matchMedia('(max-width: 700px)');
+
+interface PageSlot {
+  number: number;
+  node: HTMLElement;
+  ratio: number;
+  viewport?: PageViewport;
+  task?: RenderTask;
+  textLayer?: TextLayer;
+  ready?: boolean;
+}
+const pages: PageSlot[] = [];
+const mounted = new Set<PageSlot>();
+let pageWidth = 0;
+let frame = 0;
 let pdf: PDFDocumentProxy;
 let sync: ReaderSync;
 let highlights: Highlight[] = [];
 let page = 1;
 let zoom = 1;
-let sheet: HTMLElement | undefined;
-let viewport: PageViewport | undefined;
-let drawing = 0;
-let renderedPage = 0;
-let selection: Highlight | undefined;
+let selection: Highlight[] = [];
 let lastScroll = 0;
 let scrollTimer: number | undefined;
 let resizeTimer: number | undefined;
@@ -87,24 +98,56 @@ async function loadPdf(source: URL, endpoint: string) {
   return { version, data: await readPdf(response) };
 }
 
-function offsetWithinPage() {
-  return sheet ? Math.min(1, Math.max(0, scroller.scrollTop / sheet.offsetHeight)) : 0;
+function slotAt(y: number) {
+  let first = 0;
+  let last = pages.length - 1;
+  while (first < last) {
+    const mid = Math.ceil((first + last) / 2);
+    if (pages[mid].node.offsetTop <= y + 1) first = mid;
+    else last = mid - 1;
+  }
+  return pages[first];
+}
+
+function readingPosition(): Position {
+  const y = scroller.scrollTop;
+  const slot = slotAt(y);
+  return {
+    page: slot.number,
+    offset: Math.max(0, Math.min(1, (y - slot.node.offsetTop) / slot.node.offsetHeight))
+  };
 }
 
 function recordScroll() {
   clearTimeout(scrollTimer);
-  if (renderedPage !== page || Math.abs(scroller.scrollTop - lastScroll) < 1) return;
+  if (!pages.length || Math.abs(scroller.scrollTop - lastScroll) < 1) return;
   lastScroll = scroller.scrollTop;
-  sync.change({ position: { page, offset: offsetWithinPage() } });
+  sync.change({ position: readingPosition() });
 }
 
-function renderMarks() {
-  const layer = sheet?.querySelector('.pdf-marks');
-  if (!layer || !viewport) return;
-  const current = viewport;
-  const marks = highlights.filter(item => item.page === renderedPage).flatMap(item => item.rects.map(rect => {
-    const [x1, y1] = current.convertToViewportPoint(rect[0], rect[1]);
-    const [x2, y2] = current.convertToViewportPoint(rect[2], rect[3]);
+function updateNavigation() {
+  page = readingPosition().page;
+  if (document.activeElement !== pageInput) pageInput.value = String(page);
+  previous.disabled = page === 1;
+  next.disabled = page === pages.length;
+}
+
+function restorePosition(position: Position, save = false) {
+  const slot = pages[Math.min(pages.length, Math.max(1, position.page)) - 1];
+  scroller.scrollTop = slot.node.offsetTop + position.offset * slot.node.offsetHeight;
+  lastScroll = scroller.scrollTop;
+  updateNavigation();
+  schedulePages();
+  if (save) sync.change({ position: readingPosition() });
+}
+
+function renderMarks(slot: PageSlot) {
+  const layer = slot.node.querySelector('.pdf-marks');
+  const view = slot.viewport;
+  if (!layer || !view) return;
+  const marks = highlights.filter(item => item.page === slot.number).flatMap(item => item.rects.map(rect => {
+    const [x1, y1] = view.convertToViewportPoint(rect[0], rect[1]);
+    const [x2, y2] = view.convertToViewportPoint(rect[2], rect[3]);
     const node = document.createElement('div');
     node.className = 'pdf-mark';
     node.style.left = Math.min(x1, x2) + 'px';
@@ -129,7 +172,8 @@ function renderHighlights() {
     jump.className = 'jump';
     jump.textContent = 'Page ' + highlight.page + ' · ' + highlight.text;
     jump.addEventListener('click', () => {
-      if (highlight.page <= pdf.numPages) void renderPage({ page: highlight.page, offset: 0 }, true, highlight);
+      if (mobile.matches) setHighlightsOpen(false);
+      void jumpToHighlight(highlight);
     });
     const remove = document.createElement('button');
     remove.className = 'secondary remove';
@@ -144,104 +188,198 @@ function renderHighlights() {
     row.append(jump, remove);
     highlightsList.append(row);
   }
-  renderMarks();
+  mounted.forEach(renderMarks);
 }
 
-async function renderPage(position: Position, save = false, jump?: Highlight) {
-  const generation = ++drawing;
-  renderedPage = 0;
-  page = Math.min(pdf.numPages, Math.max(1, position.page));
-  pageInput.value = String(page);
-  previous.disabled = page <= 1;
-  next.disabled = page >= pdf.numPages;
-  selection = undefined;
-  mark.disabled = true;
+function setPageSize(slot: PageSlot) {
+  slot.node.style.height = pageWidth * slot.ratio + 'px';
+}
+
+function setEndPadding() {
+  const last = pages.at(-1)!;
+  pageSlot.style.paddingBottom = Math.max(4, scroller.clientHeight - last.node.offsetHeight) + 'px';
+}
+
+function unmount(slot: PageSlot) {
+  mounted.delete(slot);
+  slot.task?.cancel();
+  slot.textLayer?.cancel();
+  slot.task = undefined;
+  slot.textLayer = undefined;
+  slot.viewport = undefined;
+  slot.ready = false;
+  slot.node.replaceChildren();
+}
+
+async function mount(slot: PageSlot) {
+  mounted.add(slot);
+  const width = pageWidth;
   try {
-    const pdfPage = await pdf.getPage(page);
+    const pdfPage = await pdf.getPage(slot.number);
+    if (!mounted.has(slot) || slot.task || slot.ready || width !== pageWidth) return;
     const base = pdfPage.getViewport({ scale: 1 });
-    const scale = Math.max(.1, (scroller.clientWidth - 18) / base.width) * zoom;
-    const view = pdfPage.getViewport({ scale });
-    const node = document.createElement('div');
-    node.className = 'pdf-sheet';
-    node.style.width = view.width + 'px';
-    node.style.height = view.height + 'px';
-    node.style.setProperty('--scale-round-x', '1px');
-    node.style.setProperty('--scale-round-y', '1px');
-    node.style.setProperty('--total-scale-factor', String(scale * pdfPage.userUnit));
+    const view = pdfPage.getViewport({ scale: width / base.width });
+    const ratio = view.height / view.width;
+    if (Math.abs(ratio - slot.ratio) > .0001) {
+      recordScroll();
+      const anchor = readingPosition();
+      slot.ratio = ratio;
+      setPageSize(slot);
+      setEndPadding();
+      restorePosition(anchor);
+    }
+
+    slot.viewport = view;
+    slot.node.style.setProperty('--total-scale-factor', String(view.scale * pdfPage.userUnit));
     const canvas = document.createElement('canvas');
     canvas.setAttribute('aria-hidden', 'true');
-    const pixelRatio = Math.min(devicePixelRatio, 2, Math.sqrt(12_000_000 / (view.width * view.height)));
-    canvas.width = Math.ceil(view.width * pixelRatio);
-    canvas.height = Math.ceil(view.height * pixelRatio);
+    const pixels = Math.min(devicePixelRatio, 2, Math.sqrt(4_000_000 / (view.width * view.height)));
+    canvas.width = Math.ceil(view.width * pixels);
+    canvas.height = Math.ceil(view.height * pixels);
     const overlay = document.createElement('div');
     overlay.className = 'pdf-marks';
     overlay.setAttribute('aria-hidden', 'true');
     const text = document.createElement('div');
     text.className = 'textLayer';
-    node.append(canvas, overlay, text);
+    slot.node.append(canvas, overlay, text);
+    const task = pdfPage.render({ canvas, viewport: view, transform: [pixels, 0, 0, pixels, 0, 0] });
+    slot.task = task;
     const textLayer = new TextLayer({ textContentSource: pdfPage.streamTextContent(), viewport: view, container: text });
-    await Promise.all([
-      pdfPage.render({ canvas, viewport: view, transform: [pixelRatio, 0, 0, pixelRatio, 0, 0] }).promise,
-      textLayer.render()
-    ]);
-    if (generation !== drawing) return;
-    pageSlot.replaceChildren(node);
-    sheet = node;
-    viewport = view;
-    renderedPage = page;
-    renderMarks();
-    const target = jump?.rects[0];
-    const top = target ? Math.min(view.convertToViewportPoint(target[0], target[1])[1],
-      view.convertToViewportPoint(target[2], target[3])[1]) - 24 : position.offset * view.height;
-    scroller.scrollTop = Math.max(0, top);
-    lastScroll = scroller.scrollTop;
-    notice.textContent = text.childElementCount ? '' : 'This page has no selectable text.';
-    if (save) sync.change({ position: { page, offset: offsetWithinPage() } });
+    slot.textLayer = textLayer;
+    try {
+      await Promise.all([task.promise, textLayer.render()]);
+    } catch (error) {
+      if (slot.task !== task) return;
+      throw error;
+    }
+    if (slot.task !== task) return;
+    slot.ready = true;
+    renderMarks(slot);
   } catch {
-    if (generation === drawing) notice.textContent = 'Couldn’t render this page. Try another page or open the original.';
+    if (mounted.has(slot) && width === pageWidth) {
+      unmount(slot);
+      const message = document.createElement('p');
+      message.className = 'pdf-error';
+      message.textContent = 'Couldn’t render page ' + slot.number + '.';
+      slot.node.append(message);
+      mounted.add(slot);
+    }
   }
+}
+
+function updatePages() {
+  frame = 0;
+  updateNavigation();
+  const first = Math.max(1, page - 1);
+  const lastVisible = slotAt(scroller.scrollTop + scroller.clientHeight).number;
+  const last = Math.min(pages.length, Math.max(page + 1, lastVisible + 1), page + 6);
+  const nativeSelection = window.getSelection();
+  const selectedRange = nativeSelection?.rangeCount && !nativeSelection.isCollapsed ? nativeSelection.getRangeAt(0) : null;
+  for (const slot of mounted) {
+    if ((slot.number < first || slot.number > last) && !selectedRange?.intersectsNode(slot.node)) unmount(slot);
+  }
+  for (let n = first; n <= last; n++) {
+    const slot = pages[n - 1];
+    if (!mounted.has(slot)) void mount(slot);
+  }
+}
+
+function schedulePages() {
+  if (!frame) frame = requestAnimationFrame(updatePages);
+}
+
+function layout(position: Position) {
+  const width = Math.max(80, scroller.clientWidth - (mobile.matches ? 4 : 16)) * zoom;
+  if (width !== pageWidth) {
+    pageWidth = width;
+    pageSlot.style.setProperty('--pdf-width', width + 'px');
+    for (const slot of mounted) unmount(slot);
+    pages.forEach(setPageSize);
+    setSelection([]);
+  }
+  setEndPadding();
+  restorePosition(position);
 }
 
 function goTo(value: number) {
-  if (Number.isInteger(value) && value >= 1 && value <= pdf.numPages) void renderPage({ page: value, offset: 0 }, true);
-  else pageInput.value = String(page);
+  if (!Number.isInteger(value) || value < 1 || value > pages.length) {
+    pageInput.value = String(page);
+    return;
+  }
+  pageInput.blur();
+  restorePosition({ page: value, offset: 0 }, true);
+}
+
+async function jumpToHighlight(highlight: Highlight) {
+  if (!pages[highlight.page - 1]) return;
+  try {
+    const pdfPage = await pdf.getPage(highlight.page);
+    const base = pdfPage.getViewport({ scale: 1 });
+    const [, y1, , y2] = highlight.rects[0];
+    const top = Math.min(base.convertToViewportPoint(highlight.rects[0][0], y1)[1],
+      base.convertToViewportPoint(highlight.rects[0][2], y2)[1]);
+    restorePosition({ page: highlight.page, offset: Math.max(0, (top - 16) / base.height) }, true);
+  } catch {
+    goTo(highlight.page);
+  }
 }
 
 function resize() {
-  if (!pdf) return;
+  if (!pages.length) return;
   clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
-    const offset = offsetWithinPage();
     recordScroll();
-    void renderPage({ page, offset });
-  }, 120);
+    layout(readingPosition());
+  }, 90);
+}
+
+function setSelection(items: Highlight[]) {
+  selection = items;
+  mark.disabled = !items.length;
 }
 
 function trackSelection() {
-  const selected = window.getSelection();
-  const layer = sheet?.querySelector('.textLayer');
-  if (!selected?.rangeCount || selected.isCollapsed || !viewport || !sheet || renderedPage !== page ||
-      !layer?.contains(selected.anchorNode) || !layer.contains(selected.focusNode)) {
-    selection = undefined;
-    mark.disabled = true;
+  const nativeSelection = window.getSelection();
+  if (!nativeSelection?.rangeCount || nativeSelection.isCollapsed) {
+    setSelection([]);
+    if (pages.length) schedulePages();
     return;
   }
-  const text = selected.toString().trim().slice(0, 4000);
-  const bounds = sheet.getBoundingClientRect();
-  const rects: Highlight['rects'] = [];
-  for (const rect of selected.getRangeAt(0).getClientRects()) {
-    const left = Math.max(rect.left, bounds.left);
-    const right = Math.min(rect.right, bounds.right);
-    const top = Math.max(rect.top, bounds.top);
-    const bottom = Math.min(rect.bottom, bounds.bottom);
-    if (right - left < 1 || bottom - top < 1) continue;
-    const [x1, y1] = viewport.convertToPdfPoint(left - bounds.left, top - bounds.top);
-    const [x2, y2] = viewport.convertToPdfPoint(right - bounds.left, bottom - bounds.top);
-    const coordinates = [x1, y1, x2, y2].map(value => Math.round(value * 100) / 100) as Highlight['rects'][number];
-    if (!rects.some(existing => existing.every((value, i) => value === coordinates[i]))) rects.push(coordinates);
+  const range = nativeSelection.getRangeAt(0);
+  const items: Highlight[] = [];
+  for (const slot of mounted) {
+    const layer = slot.node.querySelector('.textLayer');
+    if (!layer || !slot.viewport || !range.intersectsNode(layer)) continue;
+    const withinPage = document.createRange();
+    withinPage.selectNodeContents(layer);
+    if (layer.contains(range.startContainer)) withinPage.setStart(range.startContainer, range.startOffset);
+    if (layer.contains(range.endContainer)) withinPage.setEnd(range.endContainer, range.endOffset);
+    const text = withinPage.toString().trim().slice(0, 4000);
+    if (!text) continue;
+    const bounds = slot.node.getBoundingClientRect();
+    const rects: Highlight['rects'] = [];
+    for (const rect of withinPage.getClientRects()) {
+      const left = Math.max(rect.left, bounds.left);
+      const right = Math.min(rect.right, bounds.right);
+      const top = Math.max(rect.top, bounds.top);
+      const bottom = Math.min(rect.bottom, bounds.bottom);
+      if (right - left < 1 || bottom - top < 1) continue;
+      const [x1, y1] = slot.viewport.convertToPdfPoint(left - bounds.left, top - bounds.top);
+      const [x2, y2] = slot.viewport.convertToPdfPoint(right - bounds.left, bottom - bounds.top);
+      const coordinates = [x1, y1, x2, y2].map(value => Math.round(value * 100) / 100) as Highlight['rects'][number];
+      if (!rects.some(existing => existing.every((value, i) => value === coordinates[i]))) rects.push(coordinates);
+    }
+    if (rects.length && rects.length <= 100) items.push({ id: crypto.randomUUID(), page: slot.number, text, rects });
   }
-  selection = text && rects.length && rects.length <= 100 ? { id: crypto.randomUUID(), page, text, rects } : undefined;
-  mark.disabled = !selection;
+  setSelection(items);
+}
+
+function setHighlightsOpen(open: boolean) {
+  highlightsPanel.hidden = !open;
+  panelToggle.setAttribute('aria-expanded', String(open));
+  if (!open) panelToggle.focus();
+  else byId('close-highlights').focus();
+  if (!mobile.matches) resize();
 }
 
 async function start() {
@@ -268,9 +406,24 @@ async function start() {
   highlights = saved.highlights;
   pageInput.max = String(pdf.numPages);
   byId('page-count').textContent = '/ ' + pdf.numPages;
+  const firstPage = await pdf.getPage(1);
+  const dimensions = firstPage.getViewport({ scale: 1 });
+  const estimatedRatio = dimensions.height / dimensions.width;
+  const fragment = document.createDocumentFragment();
+  for (let number = 1; number <= pdf.numPages; number++) {
+    const node = document.createElement('div');
+    node.className = 'pdf-sheet';
+    pages.push({ number, node, ratio: estimatedRatio });
+    fragment.append(node);
+  }
+  pageSlot.append(fragment);
+  byId('navigation').hidden = false;
+  document.querySelector('.reader-options')!.append(original);
   byId('toolbar').hidden = false;
-  await renderPage(saved.position ?? { page: 1, offset: 0 });
+  notice.textContent = '';
+  layout(saved.position ?? { page: 1, offset: 0 });
   renderHighlights();
+  new ResizeObserver(resize).observe(scroller);
 
   window.setInterval(() => { recordScroll(); void sync.flush(); }, 60000);
   window.addEventListener('pagehide', () => { recordScroll(); void sync.flush(true); });
@@ -281,30 +434,44 @@ async function start() {
 }
 
 scroller.addEventListener('scroll', () => {
-  if (!sync || renderedPage !== page) return;
+  if (!pages.length) return;
+  schedulePages();
   clearTimeout(scrollTimer);
   scrollTimer = window.setTimeout(recordScroll, 200);
-});
+}, { passive: true });
 previous.addEventListener('click', () => goTo(page - 1));
 next.addEventListener('click', () => goTo(page + 1));
-pageInput.addEventListener('change', () => goTo(pageInput.valueAsNumber));
+byId<HTMLFormElement>('page-jump').addEventListener('submit', event => {
+  event.preventDefault();
+  goTo(pageInput.valueAsNumber);
+});
 byId('zoom-in').addEventListener('click', () => { zoom = Math.min(3, zoom + .25); resize(); });
 byId('zoom-out').addEventListener('click', () => { zoom = Math.max(.75, zoom - .25); resize(); });
-window.addEventListener('resize', resize);
-panelToggle.addEventListener('click', () => {
-  highlightsPanel.hidden = !highlightsPanel.hidden;
-  panelToggle.setAttribute('aria-expanded', String(!highlightsPanel.hidden));
-  resize();
+panelToggle.addEventListener('click', () => setHighlightsOpen(highlightsPanel.hidden === true));
+byId('close-highlights').addEventListener('click', () => setHighlightsOpen(false));
+const more = byId<HTMLDetailsElement>('reader-more');
+document.addEventListener('click', event => {
+  if (more.open && !more.contains(event.target as Node)) more.open = false;
+});
+more.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && more.open) {
+    more.open = false;
+    more.querySelector('summary')?.focus();
+  }
+});
+highlightsPanel.addEventListener('keydown', event => {
+  if (event.key === 'Escape') setHighlightsOpen(false);
 });
 document.addEventListener('selectionchange', trackSelection);
 mark.addEventListener('pointerdown', event => event.preventDefault());
 mark.addEventListener('click', () => {
-  if (!selection) return;
-  highlights.push(selection);
-  sync.change({ add: selection });
+  if (!selection.length) return;
+  for (const item of selection) {
+    highlights.push(item);
+    sync.change({ add: item });
+  }
   window.getSelection()?.removeAllRanges();
-  selection = undefined;
-  mark.disabled = true;
+  setSelection([]);
   renderHighlights();
 });
 back.addEventListener('click', async event => {
