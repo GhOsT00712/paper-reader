@@ -6,6 +6,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { canProxyPdf, PDF_LIMIT, pdfSource, pdfVersion } from './pdf-source';
 import { ReaderSync } from './reader-sync';
 import type { Highlight, Position } from './pdf-state';
+import { reflowText, textSelection, highlightedText, type TextPage } from './reader-text';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -33,9 +34,16 @@ interface PageSlot {
   task?: RenderTask;
   textLayer?: TextLayer;
   ready?: boolean;
+  reflow?: TextPage;
+  textHeight?: number;
+  mounting?: symbol;
 }
 const pages: PageSlot[] = [];
 const mounted = new Set<PageSlot>();
+const textToggle = byId<HTMLButtonElement>('text-view');
+let textView = mobile.matches && localStorage.getItem('paper-text-view') === '1';
+let layoutTextView = false;
+let pendingTextJump: Highlight | undefined;
 let pageWidth = 0;
 let frame = 0;
 let pdf: PDFDocumentProxy;
@@ -189,10 +197,11 @@ function renderHighlights() {
     highlightsList.append(row);
   }
   mounted.forEach(renderMarks);
+  renderTextMarks();
 }
 
 function setPageSize(slot: PageSlot) {
-  slot.node.style.height = pageWidth * slot.ratio + 'px';
+  slot.node.style.height = (textView && slot.textHeight || pageWidth * slot.ratio) + 'px';
 }
 
 function setEndPadding() {
@@ -208,15 +217,20 @@ function unmount(slot: PageSlot) {
   slot.textLayer = undefined;
   slot.viewport = undefined;
   slot.ready = false;
+  slot.mounting = undefined;
+  slot.reflow = undefined;
+  slot.node.classList.remove('reflow-page');
   slot.node.replaceChildren();
 }
 
 async function mount(slot: PageSlot) {
   mounted.add(slot);
   const width = pageWidth;
+  const mounting = Symbol();
+  slot.mounting = mounting;
   try {
     const pdfPage = await pdf.getPage(slot.number);
-    if (!mounted.has(slot) || slot.task || slot.ready || width !== pageWidth) return;
+    if (slot.mounting !== mounting) return;
     const base = pdfPage.getViewport({ scale: 1 });
     const view = pdfPage.getViewport({ scale: width / base.width });
     const ratio = view.height / view.width;
@@ -231,6 +245,38 @@ async function mount(slot: PageSlot) {
 
     slot.viewport = view;
     slot.node.style.setProperty('--total-scale-factor', String(view.scale * pdfPage.userUnit));
+    if (textView) {
+      const source = document.createElement('div');
+      source.className = 'pdf-text-source';
+      source.setAttribute('aria-hidden', 'true');
+      const text = document.createElement('div');
+      text.className = 'textLayer';
+      source.append(text);
+      slot.node.append(source);
+      const layer = new TextLayer({ textContentSource: pdfPage.streamTextContent(), viewport: view, container: text });
+      slot.textLayer = layer;
+      await layer.render();
+      if (slot.mounting !== mounting) return;
+      const reflow = reflowText(text, layer.textDivs);
+      if (reflow) {
+        recordScroll();
+        const anchor = readingPosition();
+        slot.reflow = reflow;
+        slot.node.classList.add('reflow-page');
+        slot.node.append(reflow.content);
+        slot.textHeight = reflow.content.offsetHeight;
+        setPageSize(slot);
+        setEndPadding();
+        restorePosition(anchor);
+        slot.ready = true;
+        renderTextMarks();
+        if (pendingTextJump?.page === slot.number) jumpToText(slot, pendingTextJump);
+        return;
+      }
+      source.remove();
+      slot.textHeight = pageWidth * slot.ratio;
+      setPageSize(slot);
+    }
     const canvas = document.createElement('canvas');
     canvas.setAttribute('aria-hidden', 'true');
     const pixels = Math.min(devicePixelRatio, 2, Math.sqrt(4_000_000 / (view.width * view.height)));
@@ -256,7 +302,7 @@ async function mount(slot: PageSlot) {
     slot.ready = true;
     renderMarks(slot);
   } catch {
-    if (mounted.has(slot) && width === pageWidth) {
+    if (slot.mounting === mounting) {
       unmount(slot);
       const message = document.createElement('p');
       message.className = 'pdf-error';
@@ -275,9 +321,14 @@ function updatePages() {
   const last = Math.min(pages.length, Math.max(page + 1, lastVisible + 1), page + 6);
   const nativeSelection = window.getSelection();
   const selectedRange = nativeSelection?.rangeCount && !nativeSelection.isCollapsed ? nativeSelection.getRangeAt(0) : null;
+  let removedText = false;
   for (const slot of mounted) {
-    if ((slot.number < first || slot.number > last) && !selectedRange?.intersectsNode(slot.node)) unmount(slot);
+    if ((slot.number < first || slot.number > last) && !selectedRange?.intersectsNode(slot.node)) {
+      removedText ||= Boolean(slot.reflow);
+      unmount(slot);
+    }
   }
+  if (removedText) renderTextMarks();
   for (let n = first; n <= last; n++) {
     const slot = pages[n - 1];
     if (!mounted.has(slot)) void mount(slot);
@@ -289,11 +340,16 @@ function schedulePages() {
 }
 
 function layout(position: Position) {
-  const width = Math.max(80, scroller.clientWidth - (mobile.matches ? 4 : 16)) * zoom;
-  if (width !== pageWidth) {
+  const width = Math.max(80, scroller.clientWidth - (mobile.matches ? 4 : 16)) * (textView ? 1 : zoom);
+  if (width !== pageWidth || layoutTextView !== textView) {
+    if (width !== pageWidth) pages.forEach(slot => { slot.textHeight = undefined; });
+    layoutTextView = textView;
     pageWidth = width;
+    document.body.dataset.view = textView ? 'text' : 'pdf';
+    textToggle.setAttribute('aria-pressed', String(textView));
     pageSlot.style.setProperty('--pdf-width', width + 'px');
     for (const slot of mounted) unmount(slot);
+    renderTextMarks();
     pages.forEach(setPageSize);
     setSelection([]);
   }
@@ -306,12 +362,43 @@ function goTo(value: number) {
     pageInput.value = String(page);
     return;
   }
+  pendingTextJump = undefined;
   pageInput.blur();
   restorePosition({ page: value, offset: 0 }, true);
 }
 
+function renderTextMarks() {
+  const ranges = [];
+  for (const slot of mounted) {
+    if (!slot.reflow || !slot.viewport) continue;
+    const rects = highlights.filter(item => item.page === slot.number).flatMap(item => item.rects);
+    ranges.push(...highlightedText(slot.reflow, rects, slot.viewport));
+  }
+  if (CSS.highlights) CSS.highlights.set('paper-reader-marks', new globalThis.Highlight(...ranges));
+}
+
+function jumpToText(slot: PageSlot, highlight: Highlight) {
+  pendingTextJump = undefined;
+  const range = highlightedText(slot.reflow!, highlight.rects, slot.viewport!)[0];
+  const top = range ? range.getBoundingClientRect().top - slot.node.getBoundingClientRect().top : 0;
+  restorePosition({ page: slot.number, offset: Math.max(0, top - 16) / slot.node.offsetHeight }, true);
+  renderTextMarks();
+}
+
 async function jumpToHighlight(highlight: Highlight) {
-  if (!pages[highlight.page - 1]) return;
+  const slot = pages[highlight.page - 1];
+  if (!slot) return;
+  if (textView) {
+    if (slot.reflow) {
+      jumpToText(slot, highlight);
+      return;
+    }
+    if (!slot.ready) {
+      pendingTextJump = highlight;
+      restorePosition({ page: slot.number, offset: 0 }, true);
+      return;
+    }
+  }
   try {
     const pdfPage = await pdf.getPage(highlight.page);
     const base = pdfPage.getViewport({ scale: 1 });
@@ -348,6 +435,12 @@ function trackSelection() {
   const range = nativeSelection.getRangeAt(0);
   const items: Highlight[] = [];
   for (const slot of mounted) {
+    if (slot.reflow && slot.viewport) {
+      if (!range.intersectsNode(slot.reflow.content)) continue;
+      const { text, rects } = textSelection(slot.reflow, range, slot.viewport);
+      if (text && rects.length && rects.length <= 100) items.push({ id: crypto.randomUUID(), page: slot.number, text, rects });
+      continue;
+    }
     const layer = slot.node.querySelector('.textLayer');
     if (!layer || !slot.viewport || !range.intersectsNode(layer)) continue;
     const withinPage = document.createRange();
@@ -417,6 +510,7 @@ async function start() {
     fragment.append(node);
   }
   pageSlot.append(fragment);
+  textToggle.hidden = !mobile.matches;
   byId('navigation').hidden = false;
   document.querySelector('.reader-options')!.append(original);
   byId('toolbar').hidden = false;
@@ -450,6 +544,20 @@ byId('zoom-out').addEventListener('click', () => { zoom = Math.max(.75, zoom - .
 panelToggle.addEventListener('click', () => setHighlightsOpen(highlightsPanel.hidden === true));
 byId('close-highlights').addEventListener('click', () => setHighlightsOpen(false));
 const more = byId<HTMLDetailsElement>('reader-more');
+textToggle.addEventListener('click', () => {
+  recordScroll();
+  textView = !textView;
+  localStorage.setItem('paper-text-view', textView ? '1' : '0');
+  pendingTextJump = undefined;
+  layout(readingPosition());
+  more.open = false;
+  more.querySelector('summary')?.focus();
+});
+mobile.addEventListener('change', () => {
+  textToggle.hidden = !mobile.matches;
+  textView = mobile.matches && localStorage.getItem('paper-text-view') === '1';
+  resize();
+});
 document.addEventListener('click', event => {
   if (more.open && !more.contains(event.target as Node)) more.open = false;
 });

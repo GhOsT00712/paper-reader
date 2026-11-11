@@ -49,3 +49,13 @@
 }
 .pdf-sheet { width: var(--pdf-width); --scale-round-x: 1px; --scale-round-y: 1px; }
 .pdf-error { padding: 1rem; color: #333; }
+
+.reader-tools #text-view[aria-pressed="true"] { background: var(--text); color: var(--surface); }
+.reader[data-view="text"] .reader-tools .reader-group { display: none; }
+.pdf-sheet.reflow-page { background: var(--surface); color: var(--text); }
+.reflow-text { padding: .9rem 1.1rem 1rem; font-family: Georgia, serif; font-size: 1.1rem; line-height: 1.65; overflow-wrap: anywhere; }
+.reflow-text p + p { margin-top: .8em; }
+.pdf-text-source { position: absolute; top: 0; left: 0; width: 100%; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+::highlight(paper-reader-marks) { background: #ffdc69; color: #251c08; }
+.reflow-highlight { background: #ffdc69; color: #251c08; }
+.reader-options #text-view { width: 100%; white-space: nowrap; }
