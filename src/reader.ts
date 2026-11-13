@@ -25,7 +25,7 @@ const highlightsPanel = byId('highlights');
 const highlightsList = byId('highlight-list');
 const panelToggle = byId<HTMLButtonElement>('toggle-highlights');
 const media = matchMedia('(prefers-color-scheme: dark)');
-const mobile = matchMedia('(max-width: 700px)');
+const touchLayout = matchMedia('(max-width: 700px), (any-pointer: coarse)');
 
 interface PageSlot {
   number: number;
@@ -47,7 +47,8 @@ const readerFooter = document.querySelector<HTMLElement>('.reader-footer')!;
 const more = byId<HTMLDetailsElement>('reader-more');
 const idleDelay = 2400;
 let controlsTimer: number | undefined;
-let textView = mobile.matches && localStorage.getItem('paper-text-view') === '1';
+let usingKeyboard = false;
+let textView = touchLayout.matches && localStorage.getItem('paper-text-view') === '1';
 let layoutTextView = false;
 let pendingTextJump: Highlight | undefined;
 let pageWidth = 0;
@@ -72,10 +73,10 @@ media.addEventListener('change', applyTheme);
 function revealControls() {
   document.body.removeAttribute('data-controls-hidden');
   clearTimeout(controlsTimer);
-  if (!mobile.matches || !document.body.hasAttribute('data-controls-ready')) return;
+  if (!touchLayout.matches || !document.body.hasAttribute('data-controls-ready')) return;
   controlsTimer = window.setTimeout(() => {
     if (selection.length || !highlightsPanel.hidden || more.open || document.activeElement === pageInput ||
-        readerHeader.querySelector(':focus-visible') || readerFooter.querySelector(':focus-visible')) return;
+        usingKeyboard && (readerHeader.contains(document.activeElement) || readerFooter.contains(document.activeElement))) return;
     document.body.setAttribute('data-controls-hidden', '');
   }, idleDelay);
 }
@@ -203,7 +204,7 @@ function renderHighlights() {
     jump.className = 'jump';
     jump.textContent = 'Page ' + highlight.page + ' · ' + highlight.text;
     jump.addEventListener('click', () => {
-      if (mobile.matches) setHighlightsOpen(false);
+      if (touchLayout.matches) setHighlightsOpen(false);
       void jumpToHighlight(highlight);
     });
     const remove = document.createElement('button');
@@ -229,7 +230,7 @@ function setPageSize(slot: PageSlot) {
 
 function setEndPadding() {
   const last = pages.at(-1)!;
-  const clearance = mobile.matches ? readerFooter.offsetHeight + 4 : 4;
+  const clearance = touchLayout.matches ? readerFooter.offsetHeight + 4 : 4;
   pageSlot.style.paddingBottom = Math.max(clearance, scroller.clientHeight - last.node.offsetHeight) + 'px';
 }
 
@@ -356,7 +357,7 @@ function schedulePages() {
 }
 
 function layout(position: Position) {
-  const width = Math.max(80, scroller.clientWidth - (mobile.matches ? 4 : 16)) * (textView ? 1 : zoom);
+  const width = Math.max(80, scroller.clientWidth - (touchLayout.matches ? 4 : 16)) * (textView ? 1 : zoom);
   if (width !== pageWidth || layoutTextView !== textView) {
     if (width !== pageWidth) pages.forEach(slot => { slot.textHeight = undefined; });
     layoutTextView = textView;
@@ -493,7 +494,7 @@ function setHighlightsOpen(open: boolean) {
   if (!open) panelToggle.focus();
   else byId('close-highlights').focus();
   revealControls();
-  if (!mobile.matches) resize();
+  if (!touchLayout.matches) resize();
 }
 
 async function start() {
@@ -531,7 +532,7 @@ async function start() {
     fragment.append(node);
   }
   pageSlot.append(fragment);
-  textToggle.hidden = !mobile.matches;
+  textToggle.hidden = !touchLayout.matches;
   byId('navigation').hidden = false;
   document.querySelector('.reader-options')!.append(original);
   byId('toolbar').hidden = false;
@@ -565,8 +566,8 @@ byId<HTMLFormElement>('page-jump').addEventListener('submit', event => {
   event.preventDefault();
   goTo(pageInput.valueAsNumber);
 });
-byId('zoom-in').addEventListener('click', () => { zoom = Math.min(3, zoom + .25); resize(); });
-byId('zoom-out').addEventListener('click', () => { zoom = Math.max(.75, zoom - .25); resize(); });
+byId('zoom-in').addEventListener('click', () => { zoom = Math.min(3, zoom + .25); resize(); revealControls(); });
+byId('zoom-out').addEventListener('click', () => { zoom = Math.max(.75, zoom - .25); resize(); revealControls(); });
 panelToggle.addEventListener('click', () => setHighlightsOpen(highlightsPanel.hidden === true));
 byId('close-highlights').addEventListener('click', () => setHighlightsOpen(false));
 textToggle.addEventListener('click', () => {
@@ -577,11 +578,15 @@ textToggle.addEventListener('click', () => {
   layout(readingPosition());
   revealControls();
 });
-mobile.addEventListener('change', () => {
-  textToggle.hidden = !mobile.matches;
-  textView = mobile.matches && localStorage.getItem('paper-text-view') === '1';
+touchLayout.addEventListener('change', () => {
+  textToggle.hidden = !touchLayout.matches;
+  textView = touchLayout.matches && localStorage.getItem('paper-text-view') === '1';
   revealControls();
   resize();
+});
+document.addEventListener('pointerdown', () => { usingKeyboard = false; }, { capture: true, passive: true });
+document.addEventListener('keydown', event => {
+  if (event.key === 'Tab') usingKeyboard = true;
 });
 scroller.addEventListener('click', revealControls);
 for (const bar of [readerHeader, readerFooter]) {

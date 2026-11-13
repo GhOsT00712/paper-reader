@@ -30,7 +30,7 @@
 #highlight-list li { display: grid; gap: .4rem; padding: .6rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 #highlight-list .jump { text-align: left; padding: 0; overflow-wrap: anywhere; }
 #highlight-list .remove { justify-self: start; }
-@media (max-width: 700px) {
+@media (max-width: 700px), (any-pointer: coarse) {
   .reader-header, .reader-footer { padding-inline: max(.5rem, env(safe-area-inset-left), env(safe-area-inset-right)); }
   .reader-heading { gap: .375rem; }
   .reader-heading h1 { font-size: .95rem; }
@@ -66,7 +66,7 @@
 ::highlight(paper-reader-marks) { background: #ffdc69; color: #251c08; }
 .reflow-highlight { background: #ffdc69; color: #251c08; }
 #text-view { font-family: Georgia, serif; font-size: 1.1rem; font-weight: 700; }
-@media (max-width: 700px) {
+@media (max-width: 700px), (any-pointer: coarse) {
   .reader-tools #highlight:disabled { display: none; }
   .reader-tools:has(#highlight:not(:disabled)) .reader-group { display: none; }
   .reader[data-controls-ready] :is(.reader-header, .reader-footer) {
