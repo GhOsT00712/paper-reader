@@ -73,7 +73,7 @@ media.addEventListener('change', applyTheme);
 function revealControls() {
   document.body.removeAttribute('data-controls-hidden');
   clearTimeout(controlsTimer);
-  if (!touchLayout.matches || !document.body.hasAttribute('data-controls-ready')) return;
+  if (!document.body.hasAttribute('data-controls-ready')) return;
   controlsTimer = window.setTimeout(() => {
     if (selection.length || !highlightsPanel.hidden || more.open || document.activeElement === pageInput ||
         usingKeyboard && (readerHeader.contains(document.activeElement) || readerFooter.contains(document.activeElement))) return;
@@ -230,7 +230,7 @@ function setPageSize(slot: PageSlot) {
 
 function setEndPadding() {
   const last = pages.at(-1)!;
-  const clearance = touchLayout.matches ? readerFooter.offsetHeight + 4 : 4;
+  const clearance = readerFooter.offsetHeight + 4;
   pageSlot.style.paddingBottom = Math.max(clearance, scroller.clientHeight - last.node.offsetHeight) + 'px';
 }
 
