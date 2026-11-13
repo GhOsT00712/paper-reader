@@ -1,3 +1,4 @@
+import { applyTheme, toggleTheme, watchTheme } from './theme';
 import { pdfSource } from './pdf-source';
 import './style.css';
 import type { Paper } from './paper';
@@ -32,7 +33,6 @@ const duplicate = byId('duplicate');
 const fields = byId('paper-details');
 const lookup = byId('lookup');
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const systemTheme = matchMedia('(prefers-color-scheme: dark)');
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
 const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
 let papers: Paper[] = [];
@@ -47,7 +47,6 @@ let duplicatePaper: Paper | undefined;
 let editing: Paper | undefined;
 let saving = false;
 let returnFocus: HTMLElement | null = null;
-let theme = localStorage.getItem('paper-theme');
 let listView = localStorage.getItem('paper-view') === 'list';
 const pending = new Set<number>();
 
@@ -99,6 +98,7 @@ function selectTab(tab: typeof activeTab, focus = false) {
   activeTab = tab;
   saveLocation();
   render();
+  if (!reduceMotion.matches) list.animate([{opacity: .65}, {opacity: 1}], {duration: 150, easing: 'ease'});
   if (focus) byId('tab-' + activeTab).focus();
 }
 
@@ -163,19 +163,37 @@ function render() {
   if (visible.length) return;
 
   empty.hidden = false;
+  const heading = element('h2', 'Nothing here yet.', 'empty-title');
   if (term) {
-    empty.replaceChildren(element('p', 'No papers match “' + query.trim() + '”.'),
+    heading.textContent = 'No results.';
+    empty.replaceChildren(heading, element('p', 'No papers match “' + query.trim() + '”.'),
       button('Clear search', () => {
         search.value = '';
         updateSearch();
         search.focus();
       }));
-  } else if (!papers.length || activeTab === 'unread') {
-    empty.replaceChildren(element('p', papers.length ? 'You’re all caught up 🎉' : 'Build your reading library.'),
-      button('+ Add paper', () => openEditor(), 'primary'));
-  } else {
-    empty.replaceChildren(element('p', 'Papers you finish will appear here.'));
+    return;
   }
+  const description = !papers.length ? 'Add your first paper by link, arXiv ID or DOI.' :
+    activeTab === 'read' ? 'Papers you mark as read will appear here.' : 'You’ve read all the papers in your library.';
+  const inline = element('form', '', 'empty-add');
+  const input = element('input');
+  input.placeholder = 'Paste a link, arXiv ID or DOI';
+  input.setAttribute('aria-label', input.placeholder);
+  input.required = true;
+  input.maxLength = 2048;
+  const submit = element('button', 'Add paper', 'primary');
+  inline.append(input, submit);
+  inline.addEventListener('submit', event => {
+    event.preventDefault();
+    openEditor(undefined, input.value);
+  });
+  const example = button('2401.12345', () => {
+    input.value = '2401.12345';
+    input.focus();
+  }, 'example-id');
+  example.setAttribute('aria-label', 'Fill example arXiv ID 2401.12345');
+  empty.replaceChildren(heading, element('p', description), inline, example);
 }
 
 function relativeDate(paper: Paper) {
@@ -199,11 +217,19 @@ function paperCard(paper: Paper) {
   link.rel = 'noopener noreferrer';
   link.title = paper.title;
   link.setAttribute('aria-label', paper.title + (pdf ? ' (read PDF)' : ' (opens in a new tab)'));
-  const source = element('div', '', 'paper-source-row');
-  if (pdf) source.append(element('span', 'PDF', 'pdf-badge'));
-  source.append(element('span', sourceLabel(paper.url), 'paper-source'));
-  link.append(source, element('h3', paper.title, 'paper-title'));
-  if (paper.authors) link.append(element('span', paper.authors, 'authors muted'));
+  card.classList.toggle('is-unread', !paper.read_at);
+  link.append(element('h3', paper.title, 'paper-title'));
+  const url = new URL(paper.url);
+  const arxiv = getArxivId(url);
+  const key = paperKey(url);
+  const venue = arxiv ? 'arXiv' : sourceLabel(paper.url);
+  const meta = element('div', '', 'paper-source-row');
+  meta.append(element('span', [paper.authors, venue, arxiv && /^\d{4}\./.test(arxiv) ? '20' + arxiv.slice(0, 2) : ''].filter(Boolean).join(' · '), 'paper-source'));
+  const identifier = arxiv ?? (key.startsWith('doi:') ? url.pathname.slice(1) : null);
+  if (identifier) meta.append(element('span', identifier, 'paper-id'));
+  if (pdf) meta.append(element('span', 'PDF', 'pdf-badge'));
+  link.append(meta);
+  if (paper.note) link.append(element('span', paper.note, 'paper-note'));
   if (paper.tags) {
     const chips = element('span', '', 'tags');
     renderTags(chips, paper.tags);
@@ -226,6 +252,7 @@ function paperCard(paper: Paper) {
     }),
     menuAction(paper.pinned ? 'Unpin' : 'Pin', () => void changePaper(paper, { pinned: !paper.pinned }, '')),
     menuAction('Delete', () => void deletePaper(paper)));
+  actions.querySelector('button:last-child')?.classList.add('danger-action');
   overflow.append(trigger, actions);
   const footer = element('div', '', 'card-footer');
   const toggle = button(paper.read_at ? '↶' : '✓',
@@ -234,9 +261,17 @@ function paperCard(paper: Paper) {
   toggle.setAttribute('aria-label', label);
   toggle.title = label;
   toggle.disabled = pending.has(paper.id);
-  footer.append(relativeDate(paper), toggle);
-  if (paper.pinned) footer.insertBefore(element('span', 'Pinned', 'pin-label'), toggle);
-  card.append(link, overflow, footer);
+  const open = element('a', '↗', 'icon-button');
+  open.href = link.href;
+  open.target = link.target;
+  open.rel = link.rel;
+  open.setAttribute('aria-label', pdf ? 'Open PDF' : 'Open paper');
+  open.title = pdf ? 'Open PDF' : 'Open paper';
+  const status = element('div', '', 'paper-status');
+  status.append(relativeDate(paper));
+  if (paper.pinned) status.append(element('span', 'Pinned', 'pin-label'));
+  footer.append(status, toggle, open, overflow);
+  card.append(link, footer);
   return card;
 }
 
@@ -256,8 +291,11 @@ async function mutate(paper: Paper, operation: () => Promise<void>, remove: bool
   if (action) action.disabled = true;
   try {
     await operation();
-    if (remove && card?.isConnected && !reduceMotion.matches) {
-      await card.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: 'forwards' }).finished.catch(() => {});
+    if (card?.isConnected && !reduceMotion.matches) {
+      const updated = papers.find(item => item.id === paper.id);
+      if (updated) card.classList.toggle('is-unread', !updated.read_at);
+      if (remove) await card.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, fill: 'forwards' }).finished.catch(() => {});
+      else if (updated?.read_at !== paper.read_at) await new Promise(resolve => setTimeout(resolve, 150));
     }
   } catch (error) {
     showToast((error as Error).message);
@@ -400,6 +438,9 @@ async function findTitle(url: URL) {
 function scheduleLookup() {
   resetLookup();
   const url = normalizePaperUrl(urlField.value);
+  const chip = byId('link-type');
+  chip.hidden = !url;
+  chip.textContent = url ? getArxivId(url) ? 'arXiv' : paperKey(url).startsWith('doi:') ? 'DOI' : 'Link' : '';
   if (url) lookupTimer = window.setTimeout(() => void findTitle(url), 280);
 }
 
@@ -409,6 +450,7 @@ function openEditor(paper?: Paper, input = '') {
   editing = paper;
   form.reset();
   resetLookup();
+  byId('link-type').hidden = true;
   byId<HTMLDetailsElement>('optional-fields').open = Boolean(paper && (paper.authors || paper.tags || paper.note));
   byId('dialog-title').textContent = paper ? 'Edit paper' : 'Add paper';
   byId('link-field').hidden = Boolean(paper);
@@ -512,19 +554,17 @@ byId('dismiss-hint').addEventListener('click', () => {
 });
 window.addEventListener('popstate', () => { clearTimeout(searchTimer); readLocation(); render(); });
 
-function applyTheme() {
-  const dark = theme ? theme === 'dark' : systemTheme.matches;
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0d1014' : '#f3f6f0');
-  byId('theme').setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+function updateTheme() {
+  const dark = applyTheme();
+  const label = dark ? 'Switch to light theme' : 'Switch to dark theme';
+  byId('theme').setAttribute('aria-label', label);
+  byId('theme').title = label;
 }
 byId('theme').addEventListener('click', () => {
-  theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  localStorage.setItem('paper-theme', theme);
-  applyTheme();
+  toggleTheme();
+  updateTheme();
 });
-systemTheme.addEventListener('change', applyTheme);
-applyTheme();
+watchTheme(updateTheme);
 
 document.addEventListener('click', event => {
   for (const menu of document.querySelectorAll<HTMLDetailsElement>('.menu[open]')) {
@@ -549,7 +589,7 @@ document.addEventListener('keydown', event => {
     const menu = (event.target as HTMLElement).closest<HTMLDetailsElement>('.menu[open]');
     if (menu) { menu.open = false; menu.querySelector('summary')?.focus(); }
   }
-  if (document.querySelector('dialog[open]') || isTyping(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.defaultPrevented || event.isComposing || document.querySelector('dialog[open]') || isTyping(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key.toLowerCase() === 'n') openEditor();
   else if (event.key === '/') search.focus();
   else if (/^[123]$/.test(event.key)) selectTab(tabNames[Number(event.key) - 1], true);

@@ -1,3 +1,4 @@
+import { watchTheme } from './theme';
 import './style.css';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import './reader.css';
@@ -24,7 +25,6 @@ const mark = byId<HTMLButtonElement>('highlight');
 const highlightsPanel = byId('highlights');
 const highlightsList = byId('highlight-list');
 const panelToggle = byId<HTMLButtonElement>('toggle-highlights');
-const media = matchMedia('(prefers-color-scheme: dark)');
 const touchLayout = matchMedia('(max-width: 700px), (any-pointer: coarse)');
 
 interface PageSlot {
@@ -64,11 +64,7 @@ let scrollTimer: number | undefined;
 let resizeTimer: number | undefined;
 let leaving = false;
 
-function applyTheme() {
-  document.documentElement.dataset.theme = localStorage.getItem('paper-theme') ?? (media.matches ? 'dark' : 'light');
-}
-applyTheme();
-media.addEventListener('change', applyTheme);
+watchTheme();
 
 function revealControls() {
   document.body.removeAttribute('data-controls-hidden');
