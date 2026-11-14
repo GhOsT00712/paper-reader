@@ -8,7 +8,7 @@ import { canProxyPdf, PDF_LIMIT, pdfSource, pdfVersion } from './pdf-source';
 import { ReaderSync } from './reader-sync';
 import type { Highlight, Position } from './pdf-state';
 import { renderPdfRaster } from './reader-raster';
-import { reflowText, textSelection, highlightedText, type TextPage } from './reader-text';
+import { reflowText, textSelection, highlightedText, paintTextHighlights, type TextPage } from './reader-text';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -333,14 +333,11 @@ function updatePages() {
   const last = Math.min(pages.length, Math.max(page + 1, lastVisible + 1), page + 6);
   const nativeSelection = window.getSelection();
   const selectedRange = nativeSelection?.rangeCount && !nativeSelection.isCollapsed ? nativeSelection.getRangeAt(0) : null;
-  let removedText = false;
   for (const slot of mounted) {
     if ((slot.number < first || slot.number > last) && !selectedRange?.intersectsNode(slot.node)) {
-      removedText ||= Boolean(slot.reflow);
       unmount(slot);
     }
   }
-  if (removedText) renderTextMarks();
   for (let n = first; n <= last; n++) {
     const slot = pages[n - 1];
     if (!mounted.has(slot)) void mount(slot);
@@ -362,7 +359,6 @@ function layout(position: Position) {
     textToggle.setAttribute('aria-pressed', String(textView));
     pageSlot.style.setProperty('--pdf-width', width + 'px');
     for (const slot of mounted) unmount(slot);
-    renderTextMarks();
     pages.forEach(setPageSize);
     setSelection([]);
   }
@@ -381,13 +377,11 @@ function goTo(value: number) {
 }
 
 function renderTextMarks() {
-  const ranges = [];
   for (const slot of mounted) {
     if (!slot.reflow || !slot.viewport) continue;
     const rects = highlights.filter(item => item.page === slot.number).flatMap(item => item.rects);
-    ranges.push(...highlightedText(slot.reflow, rects, slot.viewport));
+    paintTextHighlights(slot.reflow, rects, slot.viewport);
   }
-  if (CSS.highlights) CSS.highlights.set('paper-reader-marks', new globalThis.Highlight(...ranges));
 }
 
 function jumpToText(slot: PageSlot, highlight: Highlight) {
@@ -538,6 +532,18 @@ async function start() {
   revealControls();
   layout(saved.position ?? { page: 1, offset: 0 });
   renderHighlights();
+  void document.fonts.ready.then(() => {
+    if (!textView) return;
+    const position = readingPosition();
+    for (const slot of mounted) {
+      if (!slot.reflow) continue;
+      slot.textHeight = slot.reflow.content.offsetHeight;
+      setPageSize(slot);
+    }
+    setEndPadding();
+    restorePosition(position);
+    renderTextMarks();
+  });
   const observer = new ResizeObserver(resize);
   for (const node of [scroller, readerHeader, readerFooter]) observer.observe(node);
 

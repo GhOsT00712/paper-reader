@@ -203,21 +203,52 @@ export function highlightedText(page: TextPage, rects: Highlight['rects'], viewp
     const bounds = run.source.getBoundingClientRect();
     const candidates = boxes.filter(box => Math.min(box.bottom, bounds.bottom) - Math.max(box.top, bounds.top) >= bounds.height * .45 &&
       box.right > bounds.left && box.left < bounds.right);
-    run.visible.classList.toggle('reflow-highlight', candidates.length > 0 && !CSS.highlights);
-    if (!candidates.length || !CSS.highlights) continue;
+    if (!candidates.length) continue;
     const node = run.visible.firstChild!;
     const source = sourceRange(run, 0, 0);
-    for (let i = 0; i < node.textContent!.length; i++) {
-      source.setStart(run.source.firstChild!, i);
-      source.setEnd(run.source.firstChild!, i + 1);
-      const glyph = source.getBoundingClientRect();
-      if (!glyph.width || !candidates.some(box =>
-        Math.min(glyph.right, box.right) - Math.max(glyph.left, box.left) >= glyph.width * .5)) continue;
-      const range = document.createRange();
-      range.setStart(node, i);
-      range.setEnd(node, i + 1);
-      ranges.push(range);
+    const length = node.textContent!.length;
+    let start = -1;
+    for (let i = 0; i <= length; i++) {
+      let covered = false;
+      if (i < length) {
+        source.setStart(run.source.firstChild!, i);
+        source.setEnd(run.source.firstChild!, i + 1);
+        const glyph = source.getBoundingClientRect();
+        covered = glyph.width > 0 && candidates.some(box =>
+          Math.min(glyph.right, box.right) - Math.max(glyph.left, box.left) >= glyph.width * .5);
+      }
+      if (covered && start === -1) start = i;
+      if (!covered && start !== -1) {
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, i);
+        ranges.push(range);
+        start = -1;
+      }
     }
   }
   return ranges;
+}
+
+export function paintTextHighlights(page: TextPage, rects: Highlight['rects'], viewport: PageViewport) {
+  let layer = page.content.querySelector('.reflow-marks');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.className = 'reflow-marks';
+    layer.setAttribute('aria-hidden', 'true');
+    page.content.append(layer);
+  }
+  const origin = page.content.getBoundingClientRect();
+  const marks = document.createDocumentFragment();
+  for (const range of highlightedText(page, rects, viewport)) {
+    for (const box of range.getClientRects()) {
+      const mark = document.createElement('span');
+      mark.style.left = box.left - origin.left + 'px';
+      mark.style.top = box.top - origin.top + 'px';
+      mark.style.width = box.width + 'px';
+      mark.style.height = box.height + 'px';
+      marks.append(mark);
+    }
+  }
+  layer.replaceChildren(marks);
 }
